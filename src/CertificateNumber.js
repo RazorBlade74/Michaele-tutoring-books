@@ -10,7 +10,13 @@ const CertificateNumber = {
    * @returns {{ studentId: string, seq: number }}
    */
   parse(certificateNumber) {
-    throw new Error('CertificateNumber.parse not implemented — Slice 2 (#3)');
+    const match = /^MVA-(\d+)-C(\d+)$/.exec(String(certificateNumber).trim());
+    if (!match) {
+      throw new Error(
+        `CertificateNumber.parse: not a well-formed certificate number: "${certificateNumber}"`
+      );
+    }
+    return { studentId: match[1], seq: Number(match[2]) };
   },
 };
 

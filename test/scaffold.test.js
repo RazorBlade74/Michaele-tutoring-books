@@ -23,8 +23,7 @@ test('pure modules are requirable and expose their public interface', () => {
   assert.equal(typeof DigestBuilder.build, 'function');
 });
 
-test('unimplemented pure modules throw a slice-tagged error', () => {
-  assert.throws(() => CertificateNumber.parse('MVA-128651-C006'), /Slice 2/);
+test('not-yet-built pure modules throw a slice-tagged error', () => {
   assert.throws(() => PoolEngine.coveredBatch([]), /Slice 4/);
   assert.throws(() => DigestBuilder.build({}), /Slice 5/);
 });
