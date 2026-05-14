@@ -24,6 +24,5 @@ test('pure modules are requirable and expose their public interface', () => {
 });
 
 test('not-yet-built pure modules throw a slice-tagged error', () => {
-  assert.throws(() => PoolEngine.coveredBatch([]), /Slice 4/);
   assert.throws(() => DigestBuilder.build({}), /Slice 5/);
 });

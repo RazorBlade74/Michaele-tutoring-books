@@ -69,10 +69,19 @@ const ConfigGateway = {
   },
 
   /**
-   * @returns {{ goLiveDate: Date }} the go-live date — intake ignores
-   *   certificates dated on/before it (carried over by hand at migration).
-   *   Slice 4 (#5) extends this with vendor/business details, the invoicing
-   *   address, and the default invoice line-item description.
+   * The go-live date (intake ignores certificates dated on/before it) plus the
+   * invoice-drafting settings. Only the go-live date is required — it gates
+   * intake; the rest are needed only when an invoice is actually drafted, so
+   * they default to empty strings rather than throwing here.
+   *
+   * @returns {{
+   *   goLiveDate: Date,
+   *   vendor: { name: string, address: string, email: string, phone: string },
+   *   invoicingEmail: string,
+   *   defaultDescription: string,
+   *   templateDocId: string,
+   *   invoicesFolderId: string
+   * }}
    */
   getInvoiceSettings() {
     const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG_TAB);
@@ -90,21 +99,68 @@ const ConfigGateway = {
           '" tab'
       );
     }
-    return { goLiveDate: asDate_(goLiveRaw, 'Go-Live Date') };
+    return {
+      goLiveDate: asDate_(goLiveRaw, 'Go-Live Date'),
+      vendor: {
+        name: settingText_(values, 'Vendor Name'),
+        address: settingText_(values, 'Vendor Address'),
+        email: settingText_(values, 'Vendor Email'),
+        phone: settingText_(values, 'Vendor Phone'),
+      },
+      invoicingEmail: settingText_(values, 'Invoicing Email'),
+      defaultDescription: settingText_(values, 'Default Line-Item Description'),
+      templateDocId: settingText_(values, 'Invoice Template Doc ID'),
+      invoicesFolderId: settingText_(values, 'Invoices Folder ID'),
+    };
   },
 
   /**
+   * The invoice counter — the next `{YYYY}-{NNN}` number to issue, held in a
+   * single `Invoice Counter` cell.
    * @returns {{ year: number, counter: number }}
    */
   getInvoiceCounter() {
-    throw new Error('ConfigGateway.getInvoiceCounter not implemented — Slice 4 (#5)');
+    const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG_TAB);
+    if (!sheet) {
+      throw new Error(
+        'ConfigGateway.getInvoiceCounter: no "' + CONFIG_TAB + '" tab found'
+      );
+    }
+    const raw = settingValue_(sheet.getDataRange().getValues(), 'Invoice Counter');
+    const match = /^(\d{4})-(\d+)$/.exec(String(raw == null ? '' : raw).trim());
+    if (!match) {
+      throw new Error(
+        'ConfigGateway.getInvoiceCounter: the "Invoice Counter" setting on the "' +
+          CONFIG_TAB +
+          '" tab must be present and of the form {YYYY}-{NNN} (got: "' +
+          raw +
+          '")'
+      );
+    }
+    return { year: Number(match[1]), counter: Number(match[2]) };
   },
 
   /**
-   * @param {{ year: number, counter: number }} state
+   * @param {{ year: number, counter: number }} state the next number to issue
    */
   setInvoiceCounter(state) {
-    throw new Error('ConfigGateway.setInvoiceCounter not implemented — Slice 4 (#5)');
+    const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG_TAB);
+    if (!sheet) {
+      throw new Error(
+        'ConfigGateway.setInvoiceCounter: no "' + CONFIG_TAB + '" tab found'
+      );
+    }
+    const cell = settingCell_(sheet.getDataRange().getValues(), 'Invoice Counter');
+    if (!cell) {
+      throw new Error(
+        'ConfigGateway.setInvoiceCounter: no "Invoice Counter" setting on the "' +
+          CONFIG_TAB +
+          '" tab'
+      );
+    }
+    const seq = String(state.counter);
+    const padded = seq.length >= 3 ? seq : ('00' + seq).slice(-3);
+    sheet.getRange(cell.row + 1, cell.col + 1).setValue(state.year + '-' + padded);
   },
 };
 
@@ -120,15 +176,31 @@ function isTruthy_(value) {
  * invoice-settings block sit as free-form key/value pairs anywhere on the tab.
  */
 function settingValue_(values, label) {
+  const cell = settingCell_(values, label);
+  return cell ? values[cell.row][cell.col] : null;
+}
+
+/**
+ * The 0-based `{ row, col }` of the value cell for `label` (the cell to its
+ * right), or null if the label isn't found. Lets `setInvoiceCounter` write back
+ * to wherever the tutor placed the setting.
+ */
+function settingCell_(values, label) {
   const want = label.toLowerCase();
   for (let r = 0; r < values.length; r++) {
     for (let c = 0; c < values[r].length - 1; c++) {
       if (String(values[r][c]).trim().toLowerCase() === want) {
-        return values[r][c + 1];
+        return { row: r, col: c + 1 };
       }
     }
   }
   return null;
+}
+
+/** A settings cell as trimmed text — empty string when the label is absent. */
+function settingText_(values, label) {
+  const value = settingValue_(values, label);
+  return value == null ? '' : String(value).trim();
 }
 
 /** A settings date cell — a Sheets `Date`, or a date string typed by hand. */
