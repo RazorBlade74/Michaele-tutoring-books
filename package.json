@@ -1,0 +1,9 @@
+{
+  "name": "michaele-tutoring-books",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MVA enrichment-certificate bookkeeping automation for Lamp Post Tutoring",
+  "scripts": {
+    "test": "node --test"
+  }
+}
