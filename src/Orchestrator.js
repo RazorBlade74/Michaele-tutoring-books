@@ -46,12 +46,15 @@ function runAll(runDate) {
 }
 
 /**
- * Adds the "Run now" custom menu item. Apps Script calls this on Sheet open.
+ * Adds the "Lamp Post Tutoring" custom menu. Apps Script calls this on Sheet
+ * open. `Migration dry run` (Slice 6, #7) is read-only and safe to invoke
+ * during go-live to validate carryover entries before the daily trigger runs.
  */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Lamp Post Tutoring')
     .addItem('Run now', 'runAll')
+    .addItem('Migration dry run', 'migrationDryRun')
     .addToUi();
 }
 
