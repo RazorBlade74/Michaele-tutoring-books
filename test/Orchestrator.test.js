@@ -213,7 +213,10 @@ test('onOpen adds a Lamp Post Tutoring menu with a Run now item bound to runAll'
   onOpen();
 
   assert.equal(built.name, 'Lamp Post Tutoring');
-  assert.deepEqual(built.items, [{ label: 'Run now', fn: 'runAll' }]);
+  assert.deepEqual(built.items, [
+    { label: 'Run now', fn: 'runAll' },
+    { label: 'Migration dry run', fn: 'migrationDryRun' },
+  ]);
   assert.equal(built.addedToUi, true);
 });
 
