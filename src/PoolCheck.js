@@ -94,6 +94,12 @@ function runPoolCheck(runDate) {
   return result;
 }
 
+// In Apps Script every .gs file shares one global scope, so the Orchestrator
+// references this module as `PoolCheck.runPoolCheck()`. Wrap the top-level
+// function in a `PoolCheck` object to match the convention every other module
+// uses.
+const PoolCheck = { runPoolCheck: runPoolCheck };
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { runPoolCheck };
+  module.exports = { PoolCheck: PoolCheck, runPoolCheck: runPoolCheck };
 }
