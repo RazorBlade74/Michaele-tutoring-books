@@ -2,14 +2,18 @@
  * ConfigGateway (I/O) — reads the roster and invoice settings from the Config
  * tab; persists the invoice counter.
  *
- * Roster lookup is built in Slice 2 (#3); invoice settings + counter
- * persistence are extended in Slice 4 (#5).
+ * Roster lookup is built in Slice 2 (#3); Slice 3 (#4) reads the go-live date;
+ * the rest of the invoice settings + counter persistence are extended in
+ * Slice 4 (#5).
  *
- * Config-tab contract (Slice 2): a tab named `Config` containing a roster block
- * whose header row has the cells `Student ID`, `Cert Name`, `Tab Name`,
- * `Active?` (order-independent; other columns ignored). Roster rows run from
- * directly below that header to the first blank `Student ID` cell — the rest of
- * the tab (invoice settings) is left for Slice 4.
+ * Config-tab contract: a tab named `Config` containing —
+ *  - a roster block whose header row has the cells `Student ID`, `Cert Name`,
+ *    `Tab Name`, `Active?` (order-independent; other columns ignored). Roster
+ *    rows run from directly below that header to the first blank `Student ID`
+ *    cell.
+ *  - an invoice-settings key/value area, anywhere else on the tab: a cell
+ *    holding a setting's name, with its value in the cell immediately to the
+ *    right. Slice 3 reads `Go-Live Date`; Slice 4 adds the rest.
  */
 const CONFIG_TAB = 'Config';
 
@@ -65,11 +69,28 @@ const ConfigGateway = {
   },
 
   /**
-   * @returns {object} vendor/business details, invoicing email, default
-   *   line-item description, go-live date
+   * @returns {{ goLiveDate: Date }} the go-live date — intake ignores
+   *   certificates dated on/before it (carried over by hand at migration).
+   *   Slice 4 (#5) extends this with vendor/business details, the invoicing
+   *   address, and the default invoice line-item description.
    */
   getInvoiceSettings() {
-    throw new Error('ConfigGateway.getInvoiceSettings not implemented — Slice 4 (#5)');
+    const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG_TAB);
+    if (!sheet) {
+      throw new Error(
+        'ConfigGateway.getInvoiceSettings: no "' + CONFIG_TAB + '" tab found'
+      );
+    }
+    const values = sheet.getDataRange().getValues();
+    const goLiveRaw = settingValue_(values, 'Go-Live Date');
+    if (goLiveRaw == null || goLiveRaw === '') {
+      throw new Error(
+        'ConfigGateway.getInvoiceSettings: no "Go-Live Date" setting on the "' +
+          CONFIG_TAB +
+          '" tab'
+      );
+    }
+    return { goLiveDate: asDate_(goLiveRaw, 'Go-Live Date') };
   },
 
   /**
@@ -91,6 +112,34 @@ const ConfigGateway = {
 function isTruthy_(value) {
   if (typeof value === 'boolean') return value;
   return /^(true|yes|y|1|active)$/i.test(String(value).trim());
+}
+
+/**
+ * The cell immediately to the right of the first cell whose trimmed text
+ * matches `label` (case-insensitive); null if the label isn't found. Lets the
+ * invoice-settings block sit as free-form key/value pairs anywhere on the tab.
+ */
+function settingValue_(values, label) {
+  const want = label.toLowerCase();
+  for (let r = 0; r < values.length; r++) {
+    for (let c = 0; c < values[r].length - 1; c++) {
+      if (String(values[r][c]).trim().toLowerCase() === want) {
+        return values[r][c + 1];
+      }
+    }
+  }
+  return null;
+}
+
+/** A settings date cell — a Sheets `Date`, or a date string typed by hand. */
+function asDate_(value, label) {
+  const date = value instanceof Date ? value : new Date(String(value).trim());
+  if (isNaN(date.getTime())) {
+    throw new Error(
+      'ConfigGateway: "' + label + '" is not a valid date: "' + value + '"'
+    );
+  }
+  return date;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
