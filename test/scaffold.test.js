@@ -22,7 +22,3 @@ test('pure modules are requirable and expose their public interface', () => {
   assert.equal(typeof InvoiceNumberAllocator.allocate, 'function');
   assert.equal(typeof DigestBuilder.build, 'function');
 });
-
-test('not-yet-built pure modules throw a slice-tagged error', () => {
-  assert.throws(() => DigestBuilder.build({}), /Slice 5/);
-});

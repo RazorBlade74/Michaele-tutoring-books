@@ -168,3 +168,15 @@ test('the invoice counter round-trips through set then get', () => {
 
   assert.deepEqual(ConfigGateway.getInvoiceCounter(), { year: 2027, counter: 12 });
 });
+
+test('getTutorEmail reads the Tutor Email setting', () => {
+  configGrid = [['Tutor Email', 'lamp.post.tutoring@gmail.com']];
+
+  assert.equal(ConfigGateway.getTutorEmail(), 'lamp.post.tutoring@gmail.com');
+});
+
+test('getTutorEmail returns the empty string when the setting is absent', () => {
+  configGrid = [['Go-Live Date', '2026-05-01']];
+
+  assert.equal(ConfigGateway.getTutorEmail(), '');
+});
