@@ -33,15 +33,18 @@ From issue #7. Walk these in order; if a Student has no movement in the old shee
 | 110780 | Harper Waleszonia | Harper |
 | 122084 | Zoe Emens | Zoe |
 | 124281 | Elana Phung | Elana |
-| 77251 | (2nd Phung child, full name TBD) | Phung K |
+| 77251 | Kira Phung | Kira |
 | 92472 | Heavenlee Alcala | Heavenlee |
 
 `Cert Name` must match the full name MVA prints on the Certificate (it appears on the invoice). Confirm spelling with the tutor before entry — it is what AP sees.
+
+`Tab Name` must exactly equal the Sheet tab name for that Student (case- and space-sensitive — `LedgerGateway` looks the tab up by this string).
 
 ## Phase 0 — Preflight
 
 - [ ] The new Sheet exists and the bound Apps Script project is the one in this repo (latest deploy via `clasp push`).
 - [ ] The `Config` tab exists with a roster block (header: `Student ID | Cert Name | Tab Name | Active?`) and a settings key/value area (`Go-Live Date`, `Next Invoice Number`, `Business …`, `Bill To …`, `Invoicing Email`, `Default Line-Item Description`, `Tutor Email`).
+- [ ] `Tutor Email` is set to the inbox that should receive the daily digest (e.g. `lamp.post.tutoring@gmail.com`). If absent, the orchestrator still completes its run but silently skips the digest send — easy miss to debug after-the-fact.
 - [ ] One empty tab per active Student exists, with the header row `Date | Type | Description | Amount | Certificate Number | Status`. Add a data-validation dropdown on `Type` (`Certificate | Session | Invoice | Payment | Charge`) so future hand-entered rows can't drift.
 - [ ] The old sheet (Drive id `1ztqWCsImlis9BdDFzJIuMDaINzgndc0esRS0poYbacI`) is open in another tab for reference.
 
@@ -116,11 +119,13 @@ Once the worksheet is signed off, on the Student's tab append:
    ```
    Date              = DATE ISSUED from the certificate PDF
    Type              = Certificate
-   Description       = CLASS/ACTIVITY — SERVICE DATE(S)
+   Description       = CLASS/ACTIVITY — SERVICE DATE(S)   (matches what Intake writes — see ADR 0003)
    Amount            = -TOTAL AMOUNT   (negative)
    Certificate Number= MVA-{studentId}-C{seq}
    Status            = (leave blank)
    ```
+
+   Description is load-bearing for the eventual invoice draft: the `CLASS/ACTIVITY` portion (before the em-dash) maps to the line-item description on the generated invoice. Don't leave Description blank — the invoice line will fall back to the default `Core academics tutoring` and an Individual-Tutoring cert will mislabel.
 
 2. One **opening Session row**:
 
