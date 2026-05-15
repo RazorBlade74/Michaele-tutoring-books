@@ -4,7 +4,7 @@
  *
  * Roster lookup is built in Slice 2 (#3); Slice 3 (#4) reads the go-live date;
  * the rest of the invoice settings + counter persistence are extended in
- * Slice 4 (#5).
+ * Slice 4 (#5); the digest inbox (`Tutor Email`) is added in Slice 5 (#6).
  *
  * Config-tab contract: a tab named `Config` containing —
  *  - a roster block whose header row has the cells `Student ID`, `Cert Name`,
@@ -13,7 +13,8 @@
  *    cell.
  *  - an invoice-settings key/value area, anywhere else on the tab: a cell
  *    holding a setting's name, with its value in the cell immediately to the
- *    right. Slice 3 reads `Go-Live Date`; Slice 4 adds the rest.
+ *    right. Slice 3 reads `Go-Live Date`; Slice 4 adds the rest; Slice 5 adds
+ *    `Tutor Email`.
  */
 const CONFIG_TAB = 'Config';
 
@@ -142,6 +143,21 @@ const ConfigGateway = {
       );
     }
     return { year: Number(match[1]), counter: Number(match[2]) };
+  },
+
+  /**
+   * The tutor's digest inbox — where the Orchestrator delivers the daily
+   * digest. An empty string means the setting is absent, and the Orchestrator
+   * will skip the send (still ran, just nowhere to deliver to).
+   *
+   * @returns {string} the digest inbox email address, or `''` when absent
+   */
+  getTutorEmail() {
+    const sheet = SpreadsheetApp.getActive().getSheetByName(CONFIG_TAB);
+    if (!sheet) {
+      throw new Error('ConfigGateway.getTutorEmail: no "' + CONFIG_TAB + '" tab found');
+    }
+    return settingText_(sheet.getDataRange().getValues(), 'Tutor Email');
   },
 
   /**
