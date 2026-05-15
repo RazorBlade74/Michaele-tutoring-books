@@ -152,9 +152,10 @@ In the Sheet menu, choose **Lamp Post Tutoring → Migration dry run**. It reads
 
 - the Session Pool total it sees,
 - the uninvoiced Certificates in `seq` order,
-- what the next pool-check run **would** draft (Covered Batch + dollar total).
+- what the next pool-check run **would** draft (Covered Batch + dollar total),
+- the **running balance** for that Student (signed sum of every row's `Amount`).
 
-Compare each section against worksheet line C ("the next invoice draft will cover `X` for `$Y`"). If everything lines up: migration is good. If a Student shows something you weren't expecting, do not run the daily trigger yet — re-walk that Student's worksheet, find the off-by-one, and re-enter.
+Compare each section against worksheet line C ("the next invoice draft will cover `X` for `$Y`"). The running balance should match the same Student's running balance on the old sheet — that's the carryover sanity check for the opening `Charge` row. If everything lines up: migration is good. If a Student shows something you weren't expecting, do not run the daily trigger yet — re-walk that Student's worksheet, find the off-by-one, and re-enter.
 
 The dry run writes nothing — no Gmail draft, no rows, no counter advance. Safe to re-run as many times as needed.
 

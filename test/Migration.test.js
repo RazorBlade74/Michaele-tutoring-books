@@ -45,6 +45,9 @@ function invoice(certificateNumber, amount) {
     status: 'Draft',
   };
 }
+function charge(amount) {
+  return { type: 'Charge', amount: amount, certificateNumber: '', status: '' };
+}
 
 test.beforeEach(() => {
   env = {
@@ -78,6 +81,7 @@ test('Migration.run summarises an active Student with pool, open certs, and woul
         ],
         wouldDraftBatch: ['MVA-128651-C006', 'MVA-128651-C010'],
         wouldInvoiceTotal: 75,
+        runningBalance: -175,
       },
     ],
   });
@@ -143,6 +147,7 @@ test('Migration.run reports a zero pool and empty batch for a Student with no le
     uninvoicedCertificates: [],
     wouldDraftBatch: [],
     wouldInvoiceTotal: 0,
+    runningBalance: 0,
   });
 });
 
@@ -174,6 +179,7 @@ test('Migration.formatReport renders pool, open certs, and would-draft for each 
         ],
         wouldDraftBatch: ['MVA-128651-C006', 'MVA-128651-C010'],
         wouldInvoiceTotal: 75,
+        runningBalance: 100,
       },
     ],
   };
@@ -185,6 +191,7 @@ test('Migration.formatReport renders pool, open certs, and would-draft for each 
   assert.match(text, /MVA-128651-C006 — \$25\.00/);
   assert.match(text, /MVA-128651-C010 — \$50\.00/);
   assert.match(text, /Would draft: MVA-128651-C006, MVA-128651-C010 — \$75\.00/);
+  assert.match(text, /Running balance: \$100\.00/);
 });
 
 test('Migration.formatReport calls out a Student whose pool covers nothing', () => {
@@ -197,6 +204,7 @@ test('Migration.formatReport calls out a Student whose pool covers nothing', () 
         uninvoicedCertificates: [{ certificateNumber: 'MVA-128651-C006', amount: 25 }],
         wouldDraftBatch: [],
         wouldInvoiceTotal: 0,
+        runningBalance: -5,
       },
     ],
   };
@@ -204,6 +212,31 @@ test('Migration.formatReport calls out a Student whose pool covers nothing', () 
   const text = Migration.formatReport(report);
 
   assert.match(text, /Would draft: \(nothing/);
+  assert.match(text, /Running balance: \$-5\.00/);
+});
+
+test('Migration.run sums every row signed (Charge + Certificate + Session + Invoice + Payment) into runningBalance', () => {
+  // Phoebe-style migration tab: opening Charge + open Certificate rows. The
+  // balance should match the old-sheet target ($100 in Phoebe's case).
+  env.ledger['Monique'] = [
+    charge(925),
+    certificate('MVA-128651-C060', 375),
+    certificate('MVA-128651-C061', 25),
+    certificate('MVA-128651-C062', 375),
+    certificate('MVA-128651-C063', 50),
+  ];
+
+  const report = Migration.run();
+
+  assert.equal(report.students[0].runningBalance, 100);
+});
+
+test('Migration.run runningBalance handles cents without floating-point drift', () => {
+  env.ledger['Monique'] = [charge(0.1), charge(0.2)];
+
+  const report = Migration.run();
+
+  assert.equal(report.students[0].runningBalance, 0.3);
 });
 
 test('Migration.formatReport says so when no active Students are on the roster', () => {
