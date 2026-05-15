@@ -100,6 +100,11 @@ function runIntake() {
   return result;
 }
 
+// In Apps Script every .gs file shares one global scope, so the Orchestrator
+// references this module as `Intake.runIntake()`. Wrap the top-level function
+// in an `Intake` object to match the convention every other module uses.
+const Intake = { runIntake: runIntake };
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { runIntake };
+  module.exports = { Intake: Intake, runIntake: runIntake };
 }
