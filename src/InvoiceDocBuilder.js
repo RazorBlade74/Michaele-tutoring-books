@@ -47,7 +47,7 @@ const InvoiceDocBuilder = {
   toTemplateValues(coveredBatch, config) {
     const lineItems = coveredBatch.map(function (row) {
       return {
-        description: config.defaultDescription,
+        description: lineItemDescription_(row.description, config.defaultDescription),
         date: servicePeriod_(row.description),
         po: row.certificateNumber,
         amount: Math.abs(Number(row.amount) || 0),
@@ -111,6 +111,26 @@ function servicePeriod_(description) {
   const text = String(description == null ? '' : description);
   const idx = text.lastIndexOf(SERVICE_PERIOD_SEPARATOR);
   return idx === -1 ? '' : text.slice(idx + SERVICE_PERIOD_SEPARATOR.length).trim();
+}
+
+/**
+ * Line-item description for a Certificate, derived from its cert Description
+ * per the mapping rule (see docs/adr/0003):
+ *
+ *   - `Group Tutoring - …`      → `defaultDescription`
+ *   - `Individual Tutoring - X` → trimmed `X` (e.g. `math`, `Language Arts`)
+ *   - anything else / blank      → `defaultDescription`
+ *
+ * The class/activity is the portion of the cert Description before the
+ * service-period separator. A blank or separator-less Description treats the
+ * whole string as class/activity, which falls through to `defaultDescription`.
+ */
+function lineItemDescription_(certDescription, defaultDescription) {
+  const text = String(certDescription == null ? '' : certDescription);
+  const idx = text.indexOf(SERVICE_PERIOD_SEPARATOR);
+  const classActivity = (idx === -1 ? text : text.slice(0, idx)).trim();
+  const match = /^Individual\s+Tutoring\s*-\s*(.+?)\s*$/i.exec(classActivity);
+  return match ? match[1].trim() : defaultDescription;
 }
 
 /**

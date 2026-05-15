@@ -98,10 +98,14 @@ receipt order (see Relationships).
 A request for payment sent to MVA's invoicing department
 (`invoicing@missionvistaacademy.org`) for a **Covered Batch** — one or more
 Certificates for a single Student. One line item per Certificate: Description /
-service-period Date / PO = Certificate Number / price. Generated from a Google
-Doc template, exported to PDF into a Drive `Invoices` folder, and attached to a
-Gmail draft to `invoicing@missionvistaacademy.org` — reviewed and sent by the
-tutor. Recorded in the Student Ledger as **one `Invoice`-type row per
+service-period Date / PO = Certificate Number / price. The line-item
+**Description** is derived from the Certificate's `CLASS/ACTIVITY`: `Group
+Tutoring - …` → the Config tab's `Default Line-Item Description` (currently
+`Core academics tutoring`); `Individual Tutoring - X` → `X` (e.g. `math`,
+`Language Arts`); anything else → the default. See ADR 0003. Generated from a
+Google Doc template, exported to PDF into a Drive `Invoices` folder, and
+attached to a Gmail draft to `invoicing@missionvistaacademy.org` — reviewed and
+sent by the tutor. Recorded in the Student Ledger as **one `Invoice`-type row per
 Certificate** in the batch — each carrying that Certificate's number in the
 single `Certificate Number` column, the run date, the billed amount (positive),
 and the batch's invoice number as its `Description` — all sharing a **Status**

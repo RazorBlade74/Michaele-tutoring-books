@@ -117,6 +117,69 @@ test('a Description with no service-period segment yields an empty date', () => 
   assert.equal(values.lineItems[0].date, '');
 });
 
+// --- line-item description mapping (issue #13) ---
+
+test('Group Tutoring cert maps to the configured defaultDescription', () => {
+  const values = InvoiceDocBuilder.toTemplateValues(
+    [certRow('MVA-128651-C006', 25, 'Group Tutoring - Monthly — May 2026')],
+    config
+  );
+
+  assert.equal(values.lineItems[0].description, 'Core academics tutoring');
+});
+
+test('Individual Tutoring - math cert maps to "math"', () => {
+  const values = InvoiceDocBuilder.toTemplateValues(
+    [certRow('MVA-56239-C055', 50, 'Individual Tutoring - math — 1/5/2026')],
+    config
+  );
+
+  assert.equal(values.lineItems[0].description, 'math');
+});
+
+test('Individual Tutoring - Language Arts cert maps to "Language Arts"', () => {
+  const values = InvoiceDocBuilder.toTemplateValues(
+    [certRow('MVA-56239-C063', 50, 'Individual Tutoring - Language Arts — May 19, 2026')],
+    config
+  );
+
+  assert.equal(values.lineItems[0].description, 'Language Arts');
+});
+
+test('unrecognised class/activity falls back to defaultDescription', () => {
+  const values = InvoiceDocBuilder.toTemplateValues(
+    [certRow('MVA-128651-C006', 25, 'Tutoring — Apr 01, 2026')],
+    config
+  );
+
+  assert.equal(values.lineItems[0].description, 'Core academics tutoring');
+});
+
+test('blank cert Description falls back to defaultDescription', () => {
+  const values = InvoiceDocBuilder.toTemplateValues(
+    [certRow('MVA-128651-C006', 25, '')],
+    config
+  );
+
+  assert.equal(values.lineItems[0].description, 'Core academics tutoring');
+});
+
+test('a mixed Covered Batch carries the right description per cert', () => {
+  const values = InvoiceDocBuilder.toTemplateValues(
+    [
+      certRow('MVA-56239-C062', 375, 'Group Tutoring - Monthly — May 2026'),
+      certRow('MVA-56239-C063', 50, 'Individual Tutoring - Language Arts — May 19, 2026'),
+      certRow('MVA-56239-C064', 25, 'Individual Tutoring - math — May 22, 2026'),
+    ],
+    config
+  );
+
+  assert.deepEqual(
+    values.lineItems.map((i) => i.description),
+    ['Core academics tutoring', 'Language Arts', 'math']
+  );
+});
+
 // --- buildPdf I/O ---
 
 function fakeRow(text) {

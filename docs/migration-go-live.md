@@ -119,11 +119,13 @@ Once the worksheet is signed off, on the Student's tab append:
    ```
    Date              = DATE ISSUED from the certificate PDF
    Type              = Certificate
-   Description       = CLASS/ACTIVITY — SERVICE DATE(S)
+   Description       = CLASS/ACTIVITY — SERVICE DATE(S)   (matches what Intake writes — see ADR 0003)
    Amount            = -TOTAL AMOUNT   (negative)
    Certificate Number= MVA-{studentId}-C{seq}
    Status            = (leave blank)
    ```
+
+   Description is load-bearing for the eventual invoice draft: the `CLASS/ACTIVITY` portion (before the em-dash) maps to the line-item description on the generated invoice. Don't leave Description blank — the invoice line will fall back to the default `Core academics tutoring` and an Individual-Tutoring cert will mislabel.
 
 2. One **opening Session row**:
 
