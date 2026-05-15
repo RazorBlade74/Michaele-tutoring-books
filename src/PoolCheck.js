@@ -45,14 +45,12 @@ function runPoolCheck(runDate) {
     const templateValues = InvoiceDocBuilder.toTemplateValues(coveredBatch, {
       invoiceNumber: allocation.invoiceNumber,
       invoiceDate: now,
-      vendor: settings.vendor,
-      invoicingEmail: settings.invoicingEmail,
+      business: settings.business,
+      billTo: settings.billTo,
+      studentName: entry.certName,
       defaultDescription: settings.defaultDescription,
     });
-    const pdfBlob = InvoiceDocBuilder.buildPdf(templateValues, {
-      templateDocId: settings.templateDocId,
-      invoicesFolderId: settings.invoicesFolderId,
-    });
+    const pdfBlob = InvoiceDocBuilder.buildPdf(templateValues);
 
     InvoiceMailer.draftInvoice({
       to: settings.invoicingEmail,
@@ -61,7 +59,7 @@ function runPoolCheck(runDate) {
         'Please find attached invoice ' +
         allocation.invoiceNumber +
         ' from ' +
-        settings.vendor.name +
+        settings.business.name +
         '.',
       pdfBlob: pdfBlob,
     });

@@ -25,13 +25,17 @@ function certRow(certificateNumber, amount, description) {
 const config = {
   invoiceNumber: '2026-001',
   invoiceDate: new Date('2026-05-14T12:00:00Z'),
-  vendor: {
+  business: {
     name: 'Michaele LePenske - Online Tutoring',
+    subtitle: 'Enrichment tutoring',
     address: '123 Lamp Post Ln, Vista CA',
-    email: 'lamp.post.tutoring@gmail.com',
     phone: '555-0100',
   },
-  invoicingEmail: 'invoicing@missionvistaacademy.org',
+  billTo: {
+    name: 'Mission Vista Academy',
+    address: '350 Civic Center Dr, Vista CA 92084',
+  },
+  studentName: 'Monique Garcia',
   defaultDescription: 'Core academics tutoring',
 };
 
@@ -60,7 +64,7 @@ test('maps each Certificate in the batch to one line item', () => {
   ]);
 });
 
-test('carries the invoice number, date, vendor block, and bill-to address through', () => {
+test('carries the invoice number, date, business block, bill-to block, and student name through', () => {
   const values = InvoiceDocBuilder.toTemplateValues(
     [certRow('MVA-128651-C006', 25, 'Tutoring — Apr 01, 2026')],
     config
@@ -68,8 +72,9 @@ test('carries the invoice number, date, vendor block, and bill-to address throug
 
   assert.equal(values.invoiceNumber, '2026-001');
   assert.equal(values.invoiceDate, config.invoiceDate);
-  assert.deepEqual(values.vendor, config.vendor);
-  assert.equal(values.invoicingEmail, 'invoicing@missionvistaacademy.org');
+  assert.deepEqual(values.business, config.business);
+  assert.deepEqual(values.billTo, config.billTo);
+  assert.equal(values.studentName, 'Monique Garcia');
 });
 
 test('totals the line-item amounts, cent-exact', () => {
@@ -150,8 +155,8 @@ function fakeTable(rows) {
 
 function installBuildPdfFakes() {
   const io = {
-    templateDocId: 'template-doc-id',
-    invoicesFolderId: 'invoices-folder-id',
+    templateDocId: InvoiceDocBuilder.TEMPLATE_DOC_ID,
+    invoicesFolderId: InvoiceDocBuilder.INVOICES_FOLDER_ID,
     bodyReplacements: [],
     createdFiles: [],
   };
@@ -236,13 +241,17 @@ function installBuildPdfFakes() {
 const templateValues = {
   invoiceNumber: '2026-001',
   invoiceDate: new Date('2026-05-14T12:00:00Z'),
-  vendor: {
+  business: {
     name: 'Michaele LePenske - Online Tutoring',
+    subtitle: 'Enrichment tutoring',
     address: '123 Lamp Post Ln, Vista CA',
-    email: 'lamp.post.tutoring@gmail.com',
     phone: '555-0100',
   },
-  invoicingEmail: 'invoicing@missionvistaacademy.org',
+  billTo: {
+    name: 'Mission Vista Academy',
+    address: '350 Civic Center Dr, Vista CA 92084',
+  },
+  studentName: 'Monique Garcia',
   lineItems: [
     { description: 'Core academics tutoring', date: 'Apr 01, 2026', po: 'MVA-128651-C006', amount: 25 },
     { description: 'Core academics tutoring', date: 'May 2026', po: 'MVA-128651-C010', amount: 50 },
@@ -253,22 +262,16 @@ const templateValues = {
 test('buildPdf copies the template into the Invoices folder, named for the invoice', () => {
   const io = installBuildPdfFakes();
 
-  InvoiceDocBuilder.buildPdf(templateValues, {
-    templateDocId: io.templateDocId,
-    invoicesFolderId: io.invoicesFolderId,
-  });
+  InvoiceDocBuilder.buildPdf(templateValues);
 
   assert.equal(io.copy.name, 'Invoice 2026-001');
-  assert.equal(io.folderRequested, 'invoices-folder-id');
+  assert.equal(io.folderRequested, InvoiceDocBuilder.INVOICES_FOLDER_ID);
 });
 
 test('buildPdf replaces every scalar token in the Doc body', () => {
   const io = installBuildPdfFakes();
 
-  InvoiceDocBuilder.buildPdf(templateValues, {
-    templateDocId: io.templateDocId,
-    invoicesFolderId: io.invoicesFolderId,
-  });
+  InvoiceDocBuilder.buildPdf(templateValues);
 
   const replaced = {};
   io.bodyReplacements.forEach(function (r) {
@@ -277,11 +280,13 @@ test('buildPdf replaces every scalar token in the Doc body', () => {
   assert.deepEqual(replaced, {
     '{{invoiceNumber}}': '2026-001',
     '{{invoiceDate}}': 'May 14, 2026',
-    '{{vendorName}}': 'Michaele LePenske - Online Tutoring',
-    '{{vendorAddress}}': '123 Lamp Post Ln, Vista CA',
-    '{{vendorEmail}}': 'lamp.post.tutoring@gmail.com',
-    '{{vendorPhone}}': '555-0100',
-    '{{billToEmail}}': 'invoicing@missionvistaacademy.org',
+    '{{businessName}}': 'Michaele LePenske - Online Tutoring',
+    '{{businessSubtitle}}': 'Enrichment tutoring',
+    '{{businessAddress}}': '123 Lamp Post Ln, Vista CA',
+    '{{businessPhone}}': '555-0100',
+    '{{billToName}}': 'Mission Vista Academy',
+    '{{billToAddress}}': '350 Civic Center Dr, Vista CA 92084',
+    '{{studentName}}': 'Monique Garcia',
     '{{total}}': '$75.00',
   });
 });
@@ -289,10 +294,7 @@ test('buildPdf replaces every scalar token in the Doc body', () => {
 test('buildPdf clones the line-item row once per line item and drops the template row', () => {
   const io = installBuildPdfFakes();
 
-  InvoiceDocBuilder.buildPdf(templateValues, {
-    templateDocId: io.templateDocId,
-    invoicesFolderId: io.invoicesFolderId,
-  });
+  InvoiceDocBuilder.buildPdf(templateValues);
 
   assert.deepEqual(
     io.table.rows.map(function (row) {
@@ -308,10 +310,7 @@ test('buildPdf clones the line-item row once per line item and drops the templat
 test('buildPdf exports a PDF into the Invoices folder, trashes the working copy, and returns the blob', () => {
   const io = installBuildPdfFakes();
 
-  const blob = InvoiceDocBuilder.buildPdf(templateValues, {
-    templateDocId: io.templateDocId,
-    invoicesFolderId: io.invoicesFolderId,
-  });
+  const blob = InvoiceDocBuilder.buildPdf(templateValues);
 
   assert.equal(io.exportedType, 'application/pdf');
   assert.equal(io.createdFiles.length, 1);

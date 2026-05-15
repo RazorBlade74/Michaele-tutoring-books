@@ -46,8 +46,8 @@ global.InvoiceDocBuilder = {
     }, 0);
     return { invoiceNumber: config.invoiceNumber, total: total };
   },
-  buildPdf(templateValues, config) {
-    env.buildPdfCalls.push({ templateValues: templateValues, config: config });
+  buildPdf(templateValues) {
+    env.buildPdfCalls.push({ templateValues: templateValues });
     return { pdfFor: templateValues.invoiceNumber };
   },
 };
@@ -77,20 +77,22 @@ function certificate(certificateNumber, amount) {
 test.beforeEach(() => {
   env = {
     roster: [
-      { studentId: '128651', certName: 'M Garcia', tabName: 'Monique', active: true },
+      { studentId: '128651', certName: 'Monique Garcia', tabName: 'Monique', active: true },
     ],
     settings: {
       goLiveDate: new Date('2026-01-01'),
-      vendor: {
+      business: {
         name: 'Michaele LePenske - Online Tutoring',
+        subtitle: 'Enrichment tutoring',
         address: '123 Lamp Post Ln',
-        email: 'lamp.post.tutoring@gmail.com',
         phone: '555-0100',
+      },
+      billTo: {
+        name: 'Mission Vista Academy',
+        address: '350 Civic Center Dr, Vista CA 92084',
       },
       invoicingEmail: 'invoicing@missionvistaacademy.org',
       defaultDescription: 'Core academics tutoring',
-      templateDocId: 'template-doc-id',
-      invoicesFolderId: 'invoices-folder-id',
     },
     counter: { year: 2026, counter: 1 },
     ledger: {},
@@ -206,8 +208,8 @@ test('inactive Students are skipped even when their pool covers a batch', () => 
 
 test('each Student gets the next sequential invoice number in one run', () => {
   env.roster = [
-    { studentId: '128651', certName: 'M Garcia', tabName: 'Monique', active: true },
-    { studentId: '56239', certName: 'P Hansen', tabName: 'Phoebe', active: true },
+    { studentId: '128651', certName: 'Monique Garcia', tabName: 'Monique', active: true },
+    { studentId: '56239', certName: 'Phoebe Hansen', tabName: 'Phoebe', active: true },
   ];
   env.ledger['Monique'] = [session(25), certificate('MVA-128651-C006', 25)];
   env.ledger['Phoebe'] = [session(40), certificate('MVA-56239-C062', 40)];
@@ -231,7 +233,7 @@ test('a Covered Batch of a single Certificate produces a one-line invoice and on
   assert.equal(env.appended[0].row.certificateNumber, 'MVA-128651-C006');
 });
 
-test('the doc builder is handed the invoice settings and the Drive ids from Config', () => {
+test('the doc builder is handed the invoice settings and the Student name from Config', () => {
   env.ledger['Monique'] = [session(25), certificate('MVA-128651-C006', 25)];
 
   runPoolCheck(RUN_DATE);
@@ -239,13 +241,14 @@ test('the doc builder is handed the invoice settings and the Drive ids from Conf
   assert.deepEqual(env.toTemplateValuesCalls[0].config, {
     invoiceNumber: '2026-001',
     invoiceDate: RUN_DATE,
-    vendor: env.settings.vendor,
-    invoicingEmail: 'invoicing@missionvistaacademy.org',
+    business: env.settings.business,
+    billTo: env.settings.billTo,
+    studentName: 'Monique Garcia',
     defaultDescription: 'Core academics tutoring',
   });
-  assert.deepEqual(env.buildPdfCalls[0].config, {
-    templateDocId: 'template-doc-id',
-    invoicesFolderId: 'invoices-folder-id',
+  assert.deepEqual(env.buildPdfCalls[0].templateValues, {
+    invoiceNumber: '2026-001',
+    total: 25,
   });
 });
 

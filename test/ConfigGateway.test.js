@@ -83,31 +83,33 @@ test('throws when Go-Live Date is present but not a valid date', () => {
   assert.throws(() => ConfigGateway.getInvoiceSettings(), /not a valid date/);
 });
 
-test('reads the vendor block, invoicing email, default description, and Drive ids', () => {
+test('reads the business block, bill-to block, invoicing email, and default description', () => {
   configGrid = [
     ['Go-Live Date', '2026-05-01'],
-    ['Vendor Name', 'Michaele LePenske - Online Tutoring'],
-    ['Vendor Address', '123 Lamp Post Ln, Vista CA'],
-    ['Vendor Email', 'lamp.post.tutoring@gmail.com'],
-    ['Vendor Phone', '555-0100'],
+    ['Business Name', 'Michaele LePenske - Online Tutoring'],
+    ['Business Subtitle', 'Enrichment tutoring'],
+    ['Business Address', '123 Lamp Post Ln, Vista CA'],
+    ['Business Phone', '555-0100'],
+    ['Bill To Name', 'Mission Vista Academy'],
+    ['Bill To Address', '350 Civic Center Dr, Vista CA 92084'],
     ['Invoicing Email', 'invoicing@missionvistaacademy.org'],
     ['Default Line-Item Description', 'Core academics tutoring'],
-    ['Invoice Template Doc ID', 'doc-template-id'],
-    ['Invoices Folder ID', 'invoices-folder-id'],
   ];
 
   const settings = ConfigGateway.getInvoiceSettings();
 
-  assert.deepEqual(settings.vendor, {
+  assert.deepEqual(settings.business, {
     name: 'Michaele LePenske - Online Tutoring',
+    subtitle: 'Enrichment tutoring',
     address: '123 Lamp Post Ln, Vista CA',
-    email: 'lamp.post.tutoring@gmail.com',
     phone: '555-0100',
+  });
+  assert.deepEqual(settings.billTo, {
+    name: 'Mission Vista Academy',
+    address: '350 Civic Center Dr, Vista CA 92084',
   });
   assert.equal(settings.invoicingEmail, 'invoicing@missionvistaacademy.org');
   assert.equal(settings.defaultDescription, 'Core academics tutoring');
-  assert.equal(settings.templateDocId, 'doc-template-id');
-  assert.equal(settings.invoicesFolderId, 'invoices-folder-id');
 });
 
 test('invoice settings beyond the go-live date default to empty when absent', () => {
@@ -115,38 +117,42 @@ test('invoice settings beyond the go-live date default to empty when absent', ()
 
   const settings = ConfigGateway.getInvoiceSettings();
 
-  assert.deepEqual(settings.vendor, { name: '', address: '', email: '', phone: '' });
+  assert.deepEqual(settings.business, {
+    name: '',
+    subtitle: '',
+    address: '',
+    phone: '',
+  });
+  assert.deepEqual(settings.billTo, { name: '', address: '' });
   assert.equal(settings.invoicingEmail, '');
   assert.equal(settings.defaultDescription, '');
-  assert.equal(settings.templateDocId, '');
-  assert.equal(settings.invoicesFolderId, '');
 });
 
-test('getInvoiceCounter parses the {YYYY}-{NNN} counter cell', () => {
+test('getInvoiceCounter parses the {YYYY}-{NNN} Next Invoice Number cell', () => {
   configGrid = [
     ['Go-Live Date', '2026-05-01'],
-    ['Invoice Counter', '2026-007'],
+    ['Next Invoice Number', '2026-007'],
   ];
 
   assert.deepEqual(ConfigGateway.getInvoiceCounter(), { year: 2026, counter: 7 });
 });
 
-test('getInvoiceCounter throws when the counter cell is missing', () => {
+test('getInvoiceCounter throws when the Next Invoice Number cell is missing', () => {
   configGrid = [['Go-Live Date', '2026-05-01']];
 
-  assert.throws(() => ConfigGateway.getInvoiceCounter(), /Invoice Counter/);
+  assert.throws(() => ConfigGateway.getInvoiceCounter(), /Next Invoice Number/);
 });
 
-test('getInvoiceCounter throws when the counter cell is not {YYYY}-{NNN}', () => {
-  configGrid = [['Invoice Counter', new Date('2026-05-01')]];
+test('getInvoiceCounter throws when Next Invoice Number is not {YYYY}-{NNN}', () => {
+  configGrid = [['Next Invoice Number', new Date('2026-05-01')]];
 
-  assert.throws(() => ConfigGateway.getInvoiceCounter(), /Invoice Counter/);
+  assert.throws(() => ConfigGateway.getInvoiceCounter(), /Next Invoice Number/);
 });
 
-test('setInvoiceCounter writes the padded next number into the counter cell', () => {
+test('setInvoiceCounter writes the padded next number into the Next Invoice Number cell', () => {
   configGrid = [
     ['Go-Live Date', '2026-05-01'],
-    ['Invoice Counter', '2026-007'],
+    ['Next Invoice Number', '2026-007'],
   ];
 
   ConfigGateway.setInvoiceCounter({ year: 2026, counter: 8 });
@@ -156,7 +162,7 @@ test('setInvoiceCounter writes the padded next number into the counter cell', ()
 });
 
 test('the invoice counter round-trips through set then get', () => {
-  configGrid = [['Invoice Counter', '2026-001']];
+  configGrid = [['Next Invoice Number', '2026-001']];
 
   ConfigGateway.setInvoiceCounter({ year: 2027, counter: 12 });
 

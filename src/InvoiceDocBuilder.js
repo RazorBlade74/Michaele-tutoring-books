@@ -6,29 +6,40 @@
  * Built in Slice 4 (#5).
  *
  * Doc-template contract (`buildPdf`): a Google Doc holding the scalar tokens
- * `{{invoiceNumber}}`, `{{invoiceDate}}`, `{{vendorName}}`, `{{vendorAddress}}`,
- * `{{vendorEmail}}`, `{{vendorPhone}}`, `{{billToEmail}}`, `{{total}}`, and one
+ * `{{invoiceNumber}}`, `{{invoiceDate}}`, `{{businessName}}`,
+ * `{{businessSubtitle}}`, `{{businessAddress}}`, `{{businessPhone}}`,
+ * `{{billToName}}`, `{{billToAddress}}`, `{{studentName}}`, `{{total}}`, and one
  * table whose line-item row carries `{{description}}`, `{{date}}`, `{{po}}`,
  * `{{amount}}` — that row is cloned once per line item and then removed.
  */
 const SERVICE_PERIOD_SEPARATOR = ' — '; // the em-dash join Intake writes into a cert Description
 
+// The Drive template + output folder are fixed for this deployment, so they
+// live in code rather than on the Config tab — the tutor never edits them.
+const INVOICE_TEMPLATE_DOC_ID = '1nmFhrppFgWPJ8QVyG-XFSJ1VtrVBIjXVcmvz4ZtQlVU';
+const INVOICES_FOLDER_ID = '1le7thaOpIfCdD3dd7X4jyUoQAHbt5O7D';
+
 const InvoiceDocBuilder = {
+  TEMPLATE_DOC_ID: INVOICE_TEMPLATE_DOC_ID,
+  INVOICES_FOLDER_ID: INVOICES_FOLDER_ID,
+
   /**
    * Pure mapping: Covered Batch + config -> template field values.
    * @param {Array<object>} coveredBatch the Certificate ledger rows to bill
    * @param {{
    *   invoiceNumber: string,
    *   invoiceDate: (Date|string),
-   *   vendor: { name: string, address: string, email: string, phone: string },
-   *   invoicingEmail: string,
+   *   business: { name: string, subtitle: string, address: string, phone: string },
+   *   billTo: { name: string, address: string },
+   *   studentName: string,
    *   defaultDescription: string
    * }} config invoice settings + the allocated invoice number
    * @returns {{
    *   invoiceNumber: string,
    *   invoiceDate: (Date|string),
-   *   vendor: object,
-   *   invoicingEmail: string,
+   *   business: object,
+   *   billTo: object,
+   *   studentName: string,
    *   lineItems: Array<{ description: string, date: string, po: string, amount: number }>,
    *   total: number
    * }}
@@ -48,8 +59,9 @@ const InvoiceDocBuilder = {
     return {
       invoiceNumber: config.invoiceNumber,
       invoiceDate: config.invoiceDate,
-      vendor: config.vendor,
-      invoicingEmail: config.invoicingEmail,
+      business: config.business,
+      billTo: config.billTo,
+      studentName: config.studentName,
       lineItems: lineItems,
       total: totalCents / 100,
     };
@@ -58,13 +70,12 @@ const InvoiceDocBuilder = {
   /**
    * I/O: fill the Doc template and export a PDF into the `Invoices` folder.
    * @param {object} templateValues output of `toTemplateValues`
-   * @param {{ templateDocId: string, invoicesFolderId: string }} config
    * @returns {GoogleAppsScript.Base.Blob} the exported PDF blob
    */
-  buildPdf(templateValues, config) {
-    const invoicesFolder = DriveApp.getFolderById(config.invoicesFolderId);
+  buildPdf(templateValues) {
+    const invoicesFolder = DriveApp.getFolderById(INVOICES_FOLDER_ID);
     const docName = 'Invoice ' + templateValues.invoiceNumber;
-    const docCopy = DriveApp.getFileById(config.templateDocId).makeCopy(
+    const docCopy = DriveApp.getFileById(INVOICE_TEMPLATE_DOC_ID).makeCopy(
       docName,
       invoicesFolder
     );
@@ -73,11 +84,13 @@ const InvoiceDocBuilder = {
 
     body.replaceText('{{invoiceNumber}}', templateValues.invoiceNumber);
     body.replaceText('{{invoiceDate}}', formatDate_(templateValues.invoiceDate));
-    body.replaceText('{{vendorName}}', templateValues.vendor.name);
-    body.replaceText('{{vendorAddress}}', templateValues.vendor.address);
-    body.replaceText('{{vendorEmail}}', templateValues.vendor.email);
-    body.replaceText('{{vendorPhone}}', templateValues.vendor.phone);
-    body.replaceText('{{billToEmail}}', templateValues.invoicingEmail);
+    body.replaceText('{{businessName}}', templateValues.business.name);
+    body.replaceText('{{businessSubtitle}}', templateValues.business.subtitle);
+    body.replaceText('{{businessAddress}}', templateValues.business.address);
+    body.replaceText('{{businessPhone}}', templateValues.business.phone);
+    body.replaceText('{{billToName}}', templateValues.billTo.name);
+    body.replaceText('{{billToAddress}}', templateValues.billTo.address);
+    body.replaceText('{{studentName}}', templateValues.studentName);
     body.replaceText('{{total}}', money_(templateValues.total));
     fillLineItemTable_(body, templateValues.lineItems);
 

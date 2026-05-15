@@ -37,8 +37,10 @@ fuzzy (siblings share last names; cert name format differs from tab name).
 
 **Student**:
 A tutored child. Each has one tab in the accounting Sheet. The certificate
-carries the student as first-initial + last name ("M Garcia"); the tab is titled
-by first name ("Monique"). The **Config tab** maps Student ID -> tab.
+carries the student's full name ("Monique Garcia"); the tab is titled by first
+name ("Monique"). The roster's `Cert Name` column holds that full name verbatim,
+and it is what appears as the Student name on the invoice. The **Config tab**
+maps Student ID -> tab.
 
 **Config tab**:
 A single setup tab in the new Sheet. Holds the student roster (one row per
@@ -154,7 +156,7 @@ but still lives in the Sheet because the tutor does all bookkeeping there.
 
 ## Example dialogue
 
-> **Dev:** When the M Garcia Order arrives with 8 Certificates, what gets
+> **Dev:** When the Monique Garcia Order arrives with 8 Certificates, what gets
 > written to the Student Ledger?
 > **Tutor:** 8 rows on Monique's tab — each certificate is its own row, amount
 > as a negative in column E. They're additive toward what's approved.

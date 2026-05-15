@@ -76,11 +76,10 @@ const ConfigGateway = {
    *
    * @returns {{
    *   goLiveDate: Date,
-   *   vendor: { name: string, address: string, email: string, phone: string },
+   *   business: { name: string, subtitle: string, address: string, phone: string },
+   *   billTo: { name: string, address: string },
    *   invoicingEmail: string,
-   *   defaultDescription: string,
-   *   templateDocId: string,
-   *   invoicesFolderId: string
+   *   defaultDescription: string
    * }}
    */
   getInvoiceSettings() {
@@ -101,22 +100,24 @@ const ConfigGateway = {
     }
     return {
       goLiveDate: asDate_(goLiveRaw, 'Go-Live Date'),
-      vendor: {
-        name: settingText_(values, 'Vendor Name'),
-        address: settingText_(values, 'Vendor Address'),
-        email: settingText_(values, 'Vendor Email'),
-        phone: settingText_(values, 'Vendor Phone'),
+      business: {
+        name: settingText_(values, 'Business Name'),
+        subtitle: settingText_(values, 'Business Subtitle'),
+        address: settingText_(values, 'Business Address'),
+        phone: settingText_(values, 'Business Phone'),
+      },
+      billTo: {
+        name: settingText_(values, 'Bill To Name'),
+        address: settingText_(values, 'Bill To Address'),
       },
       invoicingEmail: settingText_(values, 'Invoicing Email'),
       defaultDescription: settingText_(values, 'Default Line-Item Description'),
-      templateDocId: settingText_(values, 'Invoice Template Doc ID'),
-      invoicesFolderId: settingText_(values, 'Invoices Folder ID'),
     };
   },
 
   /**
    * The invoice counter — the next `{YYYY}-{NNN}` number to issue, held in a
-   * single `Invoice Counter` cell.
+   * single `Next Invoice Number` cell.
    * @returns {{ year: number, counter: number }}
    */
   getInvoiceCounter() {
@@ -126,11 +127,14 @@ const ConfigGateway = {
         'ConfigGateway.getInvoiceCounter: no "' + CONFIG_TAB + '" tab found'
       );
     }
-    const raw = settingValue_(sheet.getDataRange().getValues(), 'Invoice Counter');
+    const raw = settingValue_(
+      sheet.getDataRange().getValues(),
+      'Next Invoice Number'
+    );
     const match = /^(\d{4})-(\d+)$/.exec(String(raw == null ? '' : raw).trim());
     if (!match) {
       throw new Error(
-        'ConfigGateway.getInvoiceCounter: the "Invoice Counter" setting on the "' +
+        'ConfigGateway.getInvoiceCounter: the "Next Invoice Number" setting on the "' +
           CONFIG_TAB +
           '" tab must be present and of the form {YYYY}-{NNN} (got: "' +
           raw +
@@ -150,10 +154,13 @@ const ConfigGateway = {
         'ConfigGateway.setInvoiceCounter: no "' + CONFIG_TAB + '" tab found'
       );
     }
-    const cell = settingCell_(sheet.getDataRange().getValues(), 'Invoice Counter');
+    const cell = settingCell_(
+      sheet.getDataRange().getValues(),
+      'Next Invoice Number'
+    );
     if (!cell) {
       throw new Error(
-        'ConfigGateway.setInvoiceCounter: no "Invoice Counter" setting on the "' +
+        'ConfigGateway.setInvoiceCounter: no "Next Invoice Number" setting on the "' +
           CONFIG_TAB +
           '" tab'
       );
