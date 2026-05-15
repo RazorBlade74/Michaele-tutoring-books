@@ -16,7 +16,8 @@ const Migration = {
    *   sessionPool: number,
    *   uninvoicedCertificates: Array<{ certificateNumber: string, amount: number }>,
    *   wouldDraftBatch: Array<string>,
-   *   wouldInvoiceTotal: number
+   *   wouldInvoiceTotal: number,
+   *   runningBalance: number
    * }> }} the dry-run report
    */
   run() {
@@ -61,6 +62,7 @@ const Migration = {
             formatMoney_(s.wouldInvoiceTotal)
         );
       }
+      lines.push('  Running balance: ' + formatMoney_(s.runningBalance));
       lines.push('');
     });
     return lines.join('\n');
@@ -71,10 +73,12 @@ function summariseStudent_(entry) {
   const rows = LedgerGateway.readRows(entry.tabName);
 
   let poolCents = 0;
+  let balanceCents = 0;
   const certificateRows = [];
   const invoicedCertNumbers = {};
   rows.forEach(function (row) {
     const type = String(row.type).trim();
+    balanceCents += cents_(row.amount);
     if (type === 'Session') {
       poolCents += cents_(row.amount);
     } else if (type === 'Certificate') {
@@ -113,6 +117,7 @@ function summariseStudent_(entry) {
       return row.certificateNumber;
     }),
     wouldInvoiceTotal: wouldInvoiceCents / 100,
+    runningBalance: balanceCents / 100,
   };
 }
 
