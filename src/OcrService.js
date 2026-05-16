@@ -7,7 +7,11 @@
  * `ocr: true` re-reads the page image, capturing that column. Built in
  * Slice 2 (#3).
  *
- * Uses the advanced Drive service (`Drive`, v2) — declared in appsscript.json.
+ * Uses the advanced Drive service (`Drive`, v3) — declared in appsscript.json.
+ * v2 was retired: an `insert` call with `mimeType: application/vnd.google-apps.document`
+ * now fails with "OCR is not supported for files of type
+ * application/vnd.google-apps.document". v3's `Files.create` accepts the same
+ * shape and performs the OCR conversion as before.
  */
 const OcrService = {
   /**
@@ -15,9 +19,9 @@ const OcrService = {
    * @returns {string} the OCR'd text
    */
   pdfToText(pdfBlob) {
-    const file = Drive.Files.insert(
+    const file = Drive.Files.create(
       {
-        title: pdfBlob.getName() + ' (OCR temp)',
+        name: pdfBlob.getName() + ' (OCR temp)',
         mimeType: 'application/vnd.google-apps.document',
       },
       pdfBlob,
