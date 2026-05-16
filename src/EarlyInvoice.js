@@ -16,8 +16,6 @@
  * `google.script.run.earlyInvoiceGetStudents()` without colliding in the
  * one-global-scope Apps Script project). Built in Slice 9 (#20).
  */
-const SERVICE_PERIOD_SEPARATOR = ' — '; // the em-dash join Intake writes into a cert Description
-
 const EarlyInvoice = {
   /**
    * Active roster entries, in roster order, with the `active` flag dropped —
@@ -173,11 +171,18 @@ function centsOf_(amount) {
   return Math.round((Number(amount) || 0) * 100);
 }
 
-/** Service-period label — the segment after the em-dash join in the Description. */
+/**
+ * Service-period label — the segment after the em-dash join in the
+ * Description. The separator is inlined (not hoisted to a top-level const)
+ * because InvoiceDocBuilder declares the same constant for the same purpose,
+ * and Apps Script V8 shares one global scope across every .gs file — a
+ * duplicate top-level `const` is a SyntaxError that aborts the project load.
+ */
 function servicePeriodOf_(description) {
+  const separator = ' — ';
   const text = String(description == null ? '' : description);
-  const idx = text.lastIndexOf(SERVICE_PERIOD_SEPARATOR);
-  return idx === -1 ? '' : text.slice(idx + SERVICE_PERIOD_SEPARATOR.length).trim();
+  const idx = text.lastIndexOf(separator);
+  return idx === -1 ? '' : text.slice(idx + separator.length).trim();
 }
 
 /**
