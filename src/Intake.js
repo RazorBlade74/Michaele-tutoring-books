@@ -1,14 +1,15 @@
 /**
- * Intake — wires the certificate intake path: Gmail -> PDF -> OCR -> parse ->
+ * Intake — wires the certificate intake path: Gmail -> PDF -> extract ->
  * route by Student ID -> write a `Certificate` ledger row.
  *
  * Slice 3 (#4) thickens the path for the real world: it iterates every PDF
  * attachment on an Order, dedups by Certificate Number against the Student
  * Ledger (and within the run), skips emails dated on/before the Config go-live
- * date, and collects unknown-student and unreadable-amount attachments as
- * flagged items instead of crashing or writing bad rows. The Orchestrator that
- * schedules this run — and the digest that consumes the flagged items — is
- * Slice 5 (#6).
+ * date, and collects unknown-student / unreadable-amount / extraction-failed
+ * attachments as flagged items instead of crashing or writing bad rows. The
+ * Orchestrator that schedules this run — and the digest that consumes the
+ * flagged items — is Slice 5 (#6). Slice 8 swapped the OCR-then-regex extract
+ * step for a single CertExtractor call that hits Gemini directly.
  */
 
 /**
@@ -53,8 +54,21 @@ function runIntake() {
 
   GmailIntakeSource.findCertificateEmails(goLiveDate).forEach(function (message) {
     GmailIntakeSource.getPdfAttachments(message).forEach(function (pdfBlob) {
-      const ocrText = OcrService.pdfToText(pdfBlob);
-      const cert = CertificateParser.parse(ocrText);
+      let cert;
+      try {
+        cert = CertExtractor.extract(pdfBlob);
+      } catch (e) {
+        // Gemini call failed (missing key, HTTP error, unexpected shape) or the
+        // returned cert number isn't well-formed. Surface to the digest so the
+        // tutor can hand-enter, instead of crashing the whole run.
+        result.flagged.push({
+          reason: 'extraction-failed',
+          certificateNumber: null,
+          studentId: null,
+          attachmentName: pdfBlob.getName(),
+        });
+        return;
+      }
 
       if (cert.amountUnreadable) {
         result.flagged.push({
@@ -66,7 +80,18 @@ function runIntake() {
         return;
       }
 
-      const studentId = CertificateNumber.parse(cert.certificateNumber).studentId;
+      let studentId;
+      try {
+        studentId = CertificateNumber.parse(cert.certificateNumber).studentId;
+      } catch (e) {
+        result.flagged.push({
+          reason: 'extraction-failed',
+          certificateNumber: cert.certificateNumber || null,
+          studentId: null,
+          attachmentName: pdfBlob.getName(),
+        });
+        return;
+      }
       const rosterEntry = rosterByStudentId[studentId];
       if (!rosterEntry) {
         result.flagged.push({

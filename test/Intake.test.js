@@ -1,27 +1,25 @@
 /**
- * Intake.runIntake — Slice 3 (#4) robustness wiring.
+ * Intake.runIntake — Slice 3 (#4) robustness wiring + Slice 8 Gemini swap.
  *
  * runIntake is the I/O wiring module: in Apps Script its collaborators are
  * file-scope globals, and Node sees them as globals too. The test injects fakes
- * for the I/O collaborators (Gmail, OCR, Config, Ledger) and keeps the real
- * pure CertificateNumber parser. Each fake attachment blob carries the
- * Certificate it parses to, so a test states intent ("this attachment is
- * unreadable") directly, without OCR fixtures.
+ * for the I/O collaborators (Gmail, CertExtractor, Config, Ledger) and keeps
+ * the real pure CertificateNumber parser. Each fake attachment blob carries
+ * the Certificate it extracts to (or a `throw` instruction), so a test states
+ * intent ("this attachment is unreadable", "Gemini failed on this one")
+ * directly, without PDF fixtures.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
 global.CertificateNumber = require('../src/CertificateNumber.js');
 
-// Faked so a blob can carry its own parsed Certificate (see `blob` below).
-global.CertificateParser = {
-  parse(blob) {
+// Faked so a blob can carry its own extracted Certificate (see `blob` below) —
+// or throw if `blob.throws` is set, to simulate a Gemini failure.
+global.CertExtractor = {
+  extract(blob) {
+    if (blob.throws) throw new Error(blob.throws);
     return blob.cert;
-  },
-};
-global.OcrService = {
-  pdfToText(blob) {
-    return blob; // passthrough — the faked parser reads the blob directly
   },
 };
 
@@ -175,6 +173,48 @@ test('a Certificate whose amount is unreadable is flagged, not written', () => {
       certificateNumber: null,
       studentId: null,
       attachmentName: 'bad.pdf',
+    },
+  ]);
+});
+
+test('an attachment that CertExtractor throws on is flagged as extraction-failed, not crashed on', () => {
+  env.messages = [
+    message([
+      { getName: () => 'broken.pdf', throws: 'HTTP 429' },
+      blob('ok.pdf', readableCert('MVA-128651-C006')),
+    ]),
+  ];
+
+  const result = runIntake();
+
+  assert.equal(env.appended.length, 1);
+  assert.deepEqual(result.flagged, [
+    {
+      reason: 'extraction-failed',
+      certificateNumber: null,
+      studentId: null,
+      attachmentName: 'broken.pdf',
+    },
+  ]);
+  assert.equal(result.entered.length, 1);
+});
+
+test('a Certificate with a malformed Certificate Number is flagged as extraction-failed, not crashed on', () => {
+  env.messages = [
+    message([
+      blob('hallucinated.pdf', readableCert('NOT-A-CERT-NUMBER')),
+    ]),
+  ];
+
+  const result = runIntake();
+
+  assert.equal(env.appended.length, 0);
+  assert.deepEqual(result.flagged, [
+    {
+      reason: 'extraction-failed',
+      certificateNumber: 'NOT-A-CERT-NUMBER',
+      studentId: null,
+      attachmentName: 'hallucinated.pdf',
     },
   ]);
 });
