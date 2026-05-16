@@ -47,14 +47,18 @@ function runAll(runDate) {
 
 /**
  * Adds the "Lamp Post Tutoring" custom menu. Apps Script calls this on Sheet
- * open. `Migration dry run` (Slice 6, #7) is read-only and safe to invoke
- * during go-live to validate carryover entries before the daily trigger runs.
+ * open. Items are ordered by escalating side-effect: `Run now` (the daily
+ * combined run, on demand), `Migration dry run` (Slice 6, #7 — read-only,
+ * for sanity-checking carryover at go-live), and `Generate early invoice`
+ * (Slice 9, #20 — burns an invoice number and drafts a single
+ * tutor-selected invoice; bypasses strict-FIFO).
  */
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Lamp Post Tutoring')
     .addItem('Run now', 'runAll')
     .addItem('Migration dry run', 'migrationDryRun')
+    .addItem('Generate early invoice', 'openEarlyInvoiceDialog')
     .addToUi();
 }
 

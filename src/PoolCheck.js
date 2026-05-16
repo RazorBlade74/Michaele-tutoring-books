@@ -1,15 +1,14 @@
 /**
- * PoolCheck — wires the invoice-drafting path: for each active Student, read
- * the ledger -> compute the Covered Batch -> allocate an invoice number ->
- * build the PDF -> create a Gmail draft -> write one `Invoice` row per
- * Certificate, with `Status = Draft`.
+ * PoolCheck — wires the daily invoice-drafting path: for each active Student,
+ * read the ledger -> compute the Covered Batch -> hand it to InvoiceWriter to
+ * allocate / draft / write. Strict-FIFO governs this path (see PoolEngine).
  *
  * State is recomputed from the ledger every run: an existing `Invoice` row
  * means its Certificate is invoiced and is excluded from the draw-down (see
  * `docs/adr/0002-invoice-ledger-rows-one-per-certificate.md`). The invoice
- * counter is persisted once, at the end, after every draft is allocated. The
- * Orchestrator that schedules this run — and the digest that consumes the
- * result — is Slice 5 (#6). Built in Slice 4 (#5).
+ * counter is persisted once, at the end, after every draft is allocated.
+ * Built in Slice 4 (#5); kernel extracted into InvoiceWriter in Slice 9 (#20)
+ * so the EarlyInvoice menu can reuse it.
  */
 
 /**
@@ -39,49 +38,22 @@ function runPoolCheck(runDate) {
     const coveredBatch = PoolEngine.coveredBatch(LedgerGateway.readRows(entry.tabName));
     if (coveredBatch.length === 0) return;
 
-    const allocation = InvoiceNumberAllocator.allocate(counterState, now.getFullYear());
-    counterState = allocation.state;
-
-    const templateValues = InvoiceDocBuilder.toTemplateValues(coveredBatch, {
-      invoiceNumber: allocation.invoiceNumber,
-      invoiceDate: now,
-      business: settings.business,
-      billTo: settings.billTo,
-      studentName: entry.certName,
-      defaultDescription: settings.defaultDescription,
+    const writeResult = InvoiceWriter.draft({
+      certRows: coveredBatch,
+      rosterEntry: entry,
+      settings: settings,
+      counterState: counterState,
+      runDate: now,
     });
-    const pdfBlob = InvoiceDocBuilder.buildPdf(templateValues);
-
-    InvoiceMailer.draftInvoice({
-      to: settings.invoicingEmail,
-      subject: 'Invoice ' + allocation.invoiceNumber,
-      body:
-        'Please find attached invoice ' +
-        allocation.invoiceNumber +
-        ' from ' +
-        settings.business.name +
-        '.',
-      pdfBlob: pdfBlob,
-    });
-
-    coveredBatch.forEach(function (certificateRow) {
-      LedgerGateway.appendRow(entry.tabName, {
-        date: now,
-        type: 'Invoice',
-        description: allocation.invoiceNumber,
-        amount: Math.abs(Number(certificateRow.amount) || 0),
-        certificateNumber: certificateRow.certificateNumber,
-        status: 'Draft',
-      });
-    });
+    counterState = writeResult.newCounterState;
 
     result.drafted.push({
       tabName: entry.tabName,
-      invoiceNumber: allocation.invoiceNumber,
+      invoiceNumber: writeResult.invoiceNumber,
       certificateNumbers: coveredBatch.map(function (row) {
         return row.certificateNumber;
       }),
-      total: templateValues.total,
+      total: writeResult.total,
     });
   });
 
