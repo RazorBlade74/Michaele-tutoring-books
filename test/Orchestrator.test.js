@@ -216,6 +216,7 @@ test('onOpen adds a Lamp Post Tutoring menu with a Run now item bound to runAll'
   assert.deepEqual(built.items, [
     { label: 'Run now', fn: 'runAll' },
     { label: 'Migration dry run', fn: 'migrationDryRun' },
+    { label: 'Generate early invoice', fn: 'openEarlyInvoiceDialog' },
   ]);
   assert.equal(built.addedToUi, true);
 });

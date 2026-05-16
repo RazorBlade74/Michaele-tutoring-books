@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<!--
+  EarlyInvoiceDialog — the modal picker behind the "Generate early invoice"
+  menu item. Three google.script.run calls back the flow:
+
+    earlyInvoiceGetStudents()              -> the active-roster dropdown
+    earlyInvoiceGetCertsForStudent(tabName) -> the cert list + Session Pool
+    earlyInvoiceSubmit({tabName, ...})      -> burn an invoice number, draft
+
+  The picker (with its live `Selected:` total) is the preview; the Gmail draft
+  it produces is the gate before MVA sees anything (no second confirmation
+  modal). See `EarlyInvoice.js` and issue #20.
+-->
+<html>
+  <head>
+    <base target="_top">
+    <style>
+      body {
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 16px 18px;
+        color: #202124;
+        font-size: 13px;
+      }
+      h1 {
+        font-size: 15px;
+        font-weight: 600;
+        margin: 0 0 12px 0;
+      }
+      label {
+        display: block;
+        margin-bottom: 4px;
+        font-weight: 500;
+      }
+      select {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 13px;
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        background: white;
+      }
+      .header-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin: 14px 0 6px 0;
+        min-height: 18px;
+      }
+      .header-row .pool {
+        color: #5f6368;
+        font-size: 12px;
+      }
+      .cert-list {
+        border: 1px solid #dadce0;
+        border-radius: 4px;
+        max-height: 260px;
+        overflow-y: auto;
+        background: #fafafa;
+      }
+      .cert-row {
+        display: grid;
+        grid-template-columns: 20px 1fr auto;
+        gap: 10px;
+        align-items: center;
+        padding: 8px 12px;
+        border-bottom: 1px solid #f0f0f0;
+        cursor: pointer;
+      }
+      .cert-row:last-child {
+        border-bottom: none;
+      }
+      .cert-row:hover {
+        background: #f3f6fc;
+      }
+      .cert-row .meta {
+        color: #5f6368;
+        font-size: 11px;
+      }
+      .cert-row .amount {
+        font-variant-numeric: tabular-nums;
+        font-weight: 500;
+      }
+      .empty-state {
+        padding: 20px;
+        text-align: center;
+        color: #5f6368;
+        font-style: italic;
+      }
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 14px;
+      }
+      .selected-total {
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+      button {
+        padding: 8px 18px;
+        font-size: 13px;
+        font-weight: 500;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+      }
+      button.primary {
+        background: #1a73e8;
+        color: white;
+      }
+      button.primary:disabled {
+        background: #c1c7cd;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        display: none;
+      }
+      .status.success {
+        background: #e6f4ea;
+        color: #137333;
+        display: block;
+      }
+      .status.error {
+        background: #fce8e6;
+        color: #c5221f;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Generate early invoice</h1>
+
+    <label for="student">Student</label>
+    <select id="student">
+      <option value="">Select a student...</option>
+    </select>
+
+    <div class="header-row">
+      <span id="pool-label" class="pool"></span>
+    </div>
+    <div id="cert-list" class="cert-list">
+      <div class="empty-state">Pick a student to see uninvoiced certificates.</div>
+    </div>
+
+    <div class="footer">
+      <span class="selected-total" id="selected-total">Selected: $0.00</span>
+      <button class="primary" id="submit" disabled>Submit</button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <script>
+      var state = {
+        students: [],
+        selectedTabName: '',
+        certs: [],
+        ticked: {}, // certificateNumber -> true
+        submitting: false,
+      };
+
+      var $student = document.getElementById('student');
+      var $poolLabel = document.getElementById('pool-label');
+      var $certList = document.getElementById('cert-list');
+      var $selectedTotal = document.getElementById('selected-total');
+      var $submit = document.getElementById('submit');
+      var $status = document.getElementById('status');
+
+      function formatMoney(n) {
+        return '$' + (Number(n) || 0).toFixed(2);
+      }
+
+      function showStatus(text, kind) {
+        $status.textContent = text;
+        $status.className = 'status ' + kind;
+      }
+
+      function clearStatus() {
+        $status.textContent = '';
+        $status.className = 'status';
+      }
+
+      function renderEmpty(text) {
+        $certList.innerHTML = '';
+        var div = document.createElement('div');
+        div.className = 'empty-state';
+        div.textContent = text;
+        $certList.appendChild(div);
+      }
+
+      function renderCerts() {
+        $certList.innerHTML = '';
+        if (state.certs.length === 0) {
+          renderEmpty('No uninvoiced certificates for this student.');
+          return;
+        }
+        state.certs.forEach(function (cert) {
+          var row = document.createElement('label');
+          row.className = 'cert-row';
+
+          var checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = cert.certificateNumber;
+          checkbox.checked = !!state.ticked[cert.certificateNumber];
+          checkbox.addEventListener('change', function () {
+            if (checkbox.checked) {
+              state.ticked[cert.certificateNumber] = true;
+            } else {
+              delete state.ticked[cert.certificateNumber];
+            }
+            updateTotals();
+          });
+
+          var middle = document.createElement('div');
+          var title = document.createElement('div');
+          title.textContent = cert.certificateNumber;
+          var meta = document.createElement('div');
+          meta.className = 'meta';
+          meta.textContent = cert.servicePeriod || '(no service period)';
+          middle.appendChild(title);
+          middle.appendChild(meta);
+
+          var amount = document.createElement('div');
+          amount.className = 'amount';
+          amount.textContent = formatMoney(cert.amount);
+
+          row.appendChild(checkbox);
+          row.appendChild(middle);
+          row.appendChild(amount);
+          $certList.appendChild(row);
+        });
+      }
+
+      function updateTotals() {
+        var total = state.certs.reduce(function (sum, cert) {
+          return state.ticked[cert.certificateNumber] ? sum + Number(cert.amount) : sum;
+        }, 0);
+        $selectedTotal.textContent = 'Selected: ' + formatMoney(total);
+
+        var hasStudent = !!state.selectedTabName;
+        var hasPick = Object.keys(state.ticked).length > 0;
+        $submit.disabled = !(hasStudent && hasPick) || state.submitting;
+      }
+
+      function loadStudents() {
+        google.script.run
+          .withSuccessHandler(function (students) {
+            state.students = students || [];
+            if (state.students.length === 0) {
+              $student.disabled = true;
+              renderEmpty('No active students. Add one in the Config tab.');
+              return;
+            }
+            state.students.forEach(function (s) {
+              var opt = document.createElement('option');
+              opt.value = s.tabName;
+              opt.textContent = s.certName + ' (' + s.studentId + ')';
+              $student.appendChild(opt);
+            });
+          })
+          .withFailureHandler(function (err) {
+            showStatus('Failed to load students: ' + err.message, 'error');
+          })
+          .earlyInvoiceGetStudents();
+      }
+
+      function loadCertsFor(tabName) {
+        renderEmpty('Loading...');
+        $poolLabel.textContent = '';
+        google.script.run
+          .withSuccessHandler(function (payload) {
+            state.certs = (payload && payload.certs) || [];
+            state.ticked = {};
+            var pool = (payload && payload.sessionPool) || 0;
+            $poolLabel.textContent = 'Session Pool: ' + formatMoney(pool);
+            renderCerts();
+            updateTotals();
+          })
+          .withFailureHandler(function (err) {
+            renderEmpty('');
+            showStatus('Failed to load certificates: ' + err.message, 'error');
+          })
+          .earlyInvoiceGetCertsForStudent(tabName);
+      }
+
+      $student.addEventListener('change', function () {
+        clearStatus();
+        state.selectedTabName = $student.value;
+        state.certs = [];
+        state.ticked = {};
+        $selectedTotal.textContent = 'Selected: $0.00';
+        if (state.selectedTabName) {
+          loadCertsFor(state.selectedTabName);
+        } else {
+          $poolLabel.textContent = '';
+          renderEmpty('Pick a student to see uninvoiced certificates.');
+          updateTotals();
+        }
+      });
+
+      $submit.addEventListener('click', function () {
+        if ($submit.disabled) return;
+        state.submitting = true;
+        $submit.disabled = true;
+        clearStatus();
+
+        var picked = state.certs
+          .map(function (c) {
+            return c.certificateNumber;
+          })
+          .filter(function (n) {
+            return state.ticked[n];
+          });
+
+        google.script.run
+          .withSuccessHandler(function (result) {
+            showStatus(
+              'Drafted invoice ' +
+                result.invoiceNumber +
+                ' for ' +
+                formatMoney(result.total) +
+                ' — open Gmail to review.',
+              'success'
+            );
+            // Drafted certificates are now invoiced; reset the picker so the
+            // tutor can't accidentally re-bill the same ones.
+            state.certs = [];
+            state.ticked = {};
+            renderEmpty('Invoice drafted. Close this dialog when ready.');
+            $selectedTotal.textContent = 'Selected: $0.00';
+            state.submitting = false;
+          })
+          .withFailureHandler(function (err) {
+            showStatus('Submit failed: ' + err.message, 'error');
+            state.submitting = false;
+            updateTotals();
+          })
+          .earlyInvoiceSubmit({
+            tabName: state.selectedTabName,
+            certificateNumbers: picked,
+          });
+      });
+
+      loadStudents();
+    </script>
+  </body>
+</html>

@@ -4,8 +4,11 @@
  * runPoolCheck is the I/O wiring module: its collaborators are file-scope
  * globals in Apps Script, and Node sees them as globals too. The test keeps the
  * real pure modules (PoolEngine, InvoiceNumberAllocator, CertificateNumber) and
- * injects fakes for the I/O collaborators (Config, Ledger, DocBuilder, Mailer),
- * each recording what it was handed.
+ * the real InvoiceWriter kernel (Slice 9 (#20) — the five-step invoice sequence
+ * that runPoolCheck now delegates to), and injects fakes for the four invoice
+ * gateways (Config, Ledger, DocBuilder, Mailer), each recording what it was
+ * handed. The existing assertions on the gateway side-effects act as the
+ * regression net for the kernel extraction.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -57,6 +60,8 @@ global.InvoiceMailer = {
     return { draftFor: options.subject };
   },
 };
+
+global.InvoiceWriter = require('../src/InvoiceWriter.js');
 
 const { runPoolCheck } = require('../src/PoolCheck.js');
 

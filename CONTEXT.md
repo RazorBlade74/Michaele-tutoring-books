@@ -121,6 +121,21 @@ contiguous prefix of uninvoiced Certificates; whatever crosses the "covered"
 line in a given run is invoiced together as one Invoice. A batch can be a single
 Certificate.
 
+**Early Invoice**:
+A tutor-initiated Invoice for a hand-picked subset of one Student's uninvoiced
+Certificates, drafted from the `Lamp Post Tutoring → Generate early invoice`
+menu rather than the daily pool-check. Bypasses strict-FIFO — any combination
+of uninvoiced Certificates may be selected, in any seq order. Each line item
+bills the Certificate's full approved amount regardless of delivered Sessions;
+the Session Pool can go negative against an Early-Invoiced Certificate, and
+PoolEngine's existing draw-down math already handles this (the invoiced
+Certificate's cost subtracts from the drawable pool even when the pool was
+short of it). Eligible Students: only those with `Active? = TRUE` in the
+roster, matching the automated path. Otherwise indistinguishable from an
+automated Invoice: same `{YYYY}-{NNN}` counter, same email subject/body to
+`invoicing@missionvistaacademy.org`, same one-`Invoice`-row-per-Certificate
+ledger shape (see ADR 0002), same `Draft → Sent → Paid` lifecycle.
+
 **Friendschool charge**:
 A monthly tuition line unrelated to MVA certificates. Out of automation scope,
 but still lives in the Sheet because the tutor does all bookkeeping there.
@@ -137,7 +152,10 @@ but still lives in the Sheet because the tutor does all bookkeeping there.
   be fulfilled (no skip-ahead). Receipt order = the **Certificate Number**'s
   sequence number (`C{seq}`) ascending — sequential per Student, never reused,
   so `seq` alone is a total order. The automation derives order by sorting on
-  `seq`, not by physical row position.
+  `seq`, not by physical row position. **Strict-FIFO governs the automated
+  pool-check only.** An **Early Invoice** (tutor-initiated, see below) is a
+  manual override that may invoice any subset of a Student's uninvoiced
+  Certificates, in any seq order — the FIFO contract does not apply to it.
 - The **Certificates** that become covered in one pool-check run form a
   **Covered Batch**, billed together as one **Invoice** (one line item each)
 
