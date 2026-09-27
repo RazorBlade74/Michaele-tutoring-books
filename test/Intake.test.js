@@ -151,14 +151,31 @@ test('a Certificate for a Student ID not in the roster is flagged, not written',
   const result = runIntake();
 
   assert.equal(env.appended.length, 0);
-  assert.deepEqual(result.flagged, [
-    {
-      reason: 'unknown-student',
-      certificateNumber: 'MVA-999999-C001',
-      studentId: '999999',
-      attachmentName: 'x.pdf',
-    },
-  ]);
+  assert.equal(result.flagged.length, 1);
+  const flag = result.flagged[0];
+  assert.equal(flag.reason, 'unknown-student');
+  assert.equal(flag.certificateNumber, 'MVA-999999-C001');
+  assert.equal(flag.studentId, '999999');
+  assert.equal(flag.attachmentName, 'x.pdf');
+});
+
+test('an unknown-student flag tells the tutor exactly what to add to the Config tab', () => {
+  env.messages = [
+    message([
+      blob('x.pdf', readableCert('MVA-999999-C001', { studentName: 'Jonah Lee' })),
+    ]),
+  ];
+
+  const detail = runIntake().flagged[0].detail;
+
+  assert.match(detail, /^Student ID 999999 \(MVA-999999-C001, x\.pdf\) isn't on the roster\./);
+  assert.match(detail, /Config tab/);
+  assert.match(detail, /Student ID: 999999/);
+  assert.match(detail, /Cert Name: Jonah Lee/);
+  assert.match(detail, /Tab Name/);
+  assert.match(detail, /Active\?: Yes/);
+  assert.match(detail, /Date, Type, Description, Amount, Certificate Number, Status/);
+  assert.match(detail, /The next run will pick it up/);
 });
 
 test('a Certificate whose amount is unreadable is flagged, not written', () => {
@@ -173,6 +190,9 @@ test('a Certificate whose amount is unreadable is flagged, not written', () => {
       certificateNumber: null,
       studentId: null,
       attachmentName: 'bad.pdf',
+      detail:
+        "Couldn't read bad.pdf: the TOTAL AMOUNT on the certificate couldn't be read. " +
+        'Open the PDF and enter it by hand.',
     },
   ]);
 });
@@ -188,15 +208,81 @@ test('an attachment that CertExtractor throws on is flagged as extraction-failed
   const result = runIntake();
 
   assert.equal(env.appended.length, 1);
-  assert.deepEqual(result.flagged, [
-    {
-      reason: 'extraction-failed',
-      certificateNumber: null,
-      studentId: null,
-      attachmentName: 'broken.pdf',
-    },
-  ]);
+  assert.equal(result.flagged.length, 1);
+  const flag = result.flagged[0];
+  assert.equal(flag.reason, 'extraction-failed');
+  assert.equal(flag.certificateNumber, null);
+  assert.equal(flag.studentId, null);
+  assert.equal(flag.attachmentName, 'broken.pdf');
   assert.equal(result.entered.length, 1);
+});
+
+function extractionFailureDetail(errorMessage) {
+  env.messages = [message([{ getName: () => 'MVA-76812-C028.pdf', throws: errorMessage }])];
+  return runIntake().flagged[0].detail;
+}
+
+test('a retired or missing Gemini model (HTTP 404) reads differently from an unreadable PDF', () => {
+  const detail = extractionFailureDetail(
+    'CertExtractor: Gemini HTTP 404: {"error":{"code":404,"message":"models/gemini-2.5-flash is not found"}}'
+  );
+
+  assert.match(detail, /^Couldn't read MVA-76812-C028\.pdf: /);
+  assert.match(detail, /certificate reader/);
+  assert.match(detail, /error 404/);
+  assert.match(detail, /retired/);
+  assert.doesNotMatch(detail, /\{"error"/, 'the raw API body is not dumped on the tutor');
+});
+
+test('a missing Gemini API key says the reader is not set up', () => {
+  const detail = extractionFailureDetail(
+    'CertExtractor: script property GEMINI_API_KEY is not set — see docs/gemini-intake-setup.md'
+  );
+
+  assert.match(detail, /^Couldn't read MVA-76812-C028\.pdf: /);
+  assert.match(detail, /isn't set up/);
+  assert.match(detail, /API key is missing/);
+});
+
+test('a rejected API key (HTTP 403) says so', () => {
+  const detail = extractionFailureDetail('CertExtractor: Gemini HTTP 403: forbidden');
+
+  assert.match(detail, /rejected/);
+  assert.match(detail, /error 403/);
+  assert.match(detail, /Get the setup fixed/);
+});
+
+test('any other service error (e.g. HTTP 400) asks for the setup to be fixed, not a wait', () => {
+  const detail = extractionFailureDetail('CertExtractor: Gemini HTTP 400: bad request');
+
+  assert.match(detail, /error 400/);
+  assert.match(detail, /Get the setup fixed/);
+  assert.doesNotMatch(detail, /Nothing to do yet/);
+});
+
+test('a busy or down service (HTTP 429 / 5xx) says the next run will try again', () => {
+  [429, 500, 503].forEach((code) => {
+    const detail = extractionFailureDetail('CertExtractor: Gemini HTTP ' + code + ': oops');
+
+    assert.match(detail, new RegExp('error ' + code));
+    assert.match(detail, /next run will try again/);
+  });
+});
+
+test('a garbled service response says the answer could not be understood', () => {
+  const detail = extractionFailureDetail('CertExtractor: Gemini response was not JSON: <html>');
+
+  assert.match(detail, /couldn't be understood/);
+  assert.match(detail, /next run will try again/);
+});
+
+test('an unrecognised extraction error still carries the error message, trimmed', () => {
+  const detail = extractionFailureDetail('Exceeded maximum execution time' + 'x'.repeat(500));
+
+  assert.match(detail, /^Couldn't read MVA-76812-C028\.pdf: /);
+  assert.match(detail, /Exceeded maximum execution time/);
+  assert.match(detail, /enter it by hand/);
+  assert.ok(detail.length < 400, 'a runaway error message is truncated');
 });
 
 test('a Certificate with a malformed Certificate Number is flagged as extraction-failed, not crashed on', () => {
@@ -215,8 +301,24 @@ test('a Certificate with a malformed Certificate Number is flagged as extraction
       certificateNumber: 'NOT-A-CERT-NUMBER',
       studentId: null,
       attachmentName: 'hallucinated.pdf',
+      detail:
+        "Couldn't read hallucinated.pdf: the Certificate Number came back as " +
+        '"NOT-A-CERT-NUMBER", which isn\'t a valid MVA certificate number. ' +
+        'Open the PDF and enter it by hand.',
     },
   ]);
+});
+
+test('a Certificate with no Certificate Number at all says none was found', () => {
+  env.messages = [message([blob('blank.pdf', readableCert(''))])];
+
+  const detail = runIntake().flagged[0].detail;
+
+  assert.equal(
+    detail,
+    "Couldn't read blank.pdf: no Certificate Number was found on it. " +
+      'Open the PDF and enter it by hand.'
+  );
 });
 
 test('runIntake filters intake by passing the Config go-live date to the Gmail source', () => {

@@ -9,7 +9,10 @@
  * attachments as flagged items instead of crashing or writing bad rows. The
  * Orchestrator that schedules this run — and the digest that consumes the
  * flagged items — is Slice 5 (#6). Slice 8 swapped the OCR-then-regex extract
- * step for a single CertExtractor call that hits Gemini directly.
+ * step for a single CertExtractor call that hits Gemini directly. Slice 10
+ * (#23) gives every flagged item a plain-English `detail` — why it was set
+ * aside and what the tutor should do next — derived from the thrown error when
+ * extraction fails, so a dead API no longer looks like an unreadable PDF.
  */
 
 /**
@@ -21,7 +24,8 @@
  *     reason: string,
  *     certificateNumber: (string|null),
  *     studentId: (string|null),
- *     attachmentName: string
+ *     attachmentName: string,
+ *     detail: string
  *   }>
  * }} what intake wrote, and what it set aside for the digest
  */
@@ -66,6 +70,7 @@ function runIntake() {
           certificateNumber: null,
           studentId: null,
           attachmentName: pdfBlob.getName(),
+          detail: describeExtractionError_(pdfBlob.getName(), e),
         });
         return;
       }
@@ -76,6 +81,7 @@ function runIntake() {
           certificateNumber: null,
           studentId: null,
           attachmentName: pdfBlob.getName(),
+          detail: describeUnreadableAmount_(pdfBlob.getName()),
         });
         return;
       }
@@ -89,6 +95,7 @@ function runIntake() {
           certificateNumber: cert.certificateNumber || null,
           studentId: null,
           attachmentName: pdfBlob.getName(),
+          detail: describeBadCertificateNumber_(pdfBlob.getName(), cert.certificateNumber),
         });
         return;
       }
@@ -99,6 +106,7 @@ function runIntake() {
           certificateNumber: cert.certificateNumber,
           studentId: studentId,
           attachmentName: pdfBlob.getName(),
+          detail: describeUnknownStudent_(studentId, cert, pdfBlob.getName()),
         });
         return;
       }
@@ -123,6 +131,118 @@ function runIntake() {
   });
 
   return result;
+}
+
+// Plain-English flag details (Slice 10, #23). Nothing is written for a
+// flagged attachment and every run re-reads the certificate emails, so a flag
+// clears itself once its cause is fixed. Top-level names are prefixed: Apps
+// Script shares one global scope across every file.
+const INTAKE_HAND_ENTER_STEP = 'Open the PDF and enter it by hand.';
+const INTAKE_RETRY_STEP =
+  'Nothing to do yet — the next run will try again. ' +
+  'If this keeps happening, open the PDF and enter it by hand.';
+const INTAKE_READER = 'the certificate reader (Gemini)';
+const INTAKE_MAX_ERROR_TEXT = 200;
+
+function couldNotRead_(attachmentName, why) {
+  return "Couldn't read " + attachmentName + ': ' + why;
+}
+
+function describeUnreadableAmount_(attachmentName) {
+  return couldNotRead_(
+    attachmentName,
+    "the TOTAL AMOUNT on the certificate couldn't be read. " + INTAKE_HAND_ENTER_STEP
+  );
+}
+
+function describeBadCertificateNumber_(attachmentName, certificateNumber) {
+  return couldNotRead_(
+    attachmentName,
+    (certificateNumber
+      ? 'the Certificate Number came back as "' +
+        certificateNumber +
+        '", which isn\'t a valid MVA certificate number. '
+      : 'no Certificate Number was found on it. ') + INTAKE_HAND_ENTER_STEP
+  );
+}
+
+/**
+ * Spells out the Config-tab roster row (and the Student tab) the tutor must
+ * add, using the values straight off the certificate.
+ */
+function describeUnknownStudent_(studentId, cert, attachmentName) {
+  return (
+    'Student ID ' +
+    studentId +
+    ' (' +
+    cert.certificateNumber +
+    ', ' +
+    attachmentName +
+    ") isn't on the roster. On the Config tab, add a roster row — Student ID: " +
+    studentId +
+    (cert.studentName ? ', Cert Name: ' + cert.studentName : '') +
+    ', a Tab Name (e.g. their first name), Active?: Yes. Then create a tab with ' +
+    'that Tab Name whose first row has the headings Date, Type, Description, ' +
+    'Amount, Certificate Number, Status. The next run will pick it up.'
+  );
+}
+
+/**
+ * Translate a CertExtractor failure into a sentence the tutor can act on.
+ * Keyed on the wording of CertExtractor's thrown messages — keep in sync.
+ *
+ * @param {string} attachmentName the PDF that couldn't be read
+ * @param {*} error what CertExtractor threw
+ * @returns {string} plain-English detail for the digest
+ */
+function describeExtractionError_(attachmentName, error) {
+  const message = String((error && error.message) || error || '');
+  const needsSetupFix =
+    ', so no certificates can be read until it is fixed. Get the setup fixed ' +
+    '(see docs/gemini-intake-setup.md); the next run will try again.';
+
+  if (/GEMINI_API_KEY/.test(message)) {
+    return couldNotRead_(
+      attachmentName,
+      INTAKE_READER + " isn't set up — its API key is missing" + needsSetupFix
+    );
+  }
+
+  const http = /Gemini HTTP (\d+)/.exec(message);
+  if (http) {
+    const code = Number(http[1]);
+    const tag = ' (error ' + code + ')';
+    if (code === 429 || code >= 500) {
+      return couldNotRead_(
+        attachmentName,
+        INTAKE_READER + ' was busy or temporarily down' + tag + '. ' + INTAKE_RETRY_STEP
+      );
+    }
+    let why = 'returned an error' + tag;
+    if (code === 404) {
+      why = 'says its AI model no longer exists' + tag + ' — it has probably been retired';
+    } else if (code === 401 || code === 403) {
+      why = 'rejected its API key' + tag;
+    }
+    return couldNotRead_(attachmentName, INTAKE_READER + ' ' + why + needsSetupFix);
+  }
+
+  if (/Gemini (response|structured-output)/.test(message)) {
+    return couldNotRead_(
+      attachmentName,
+      INTAKE_READER + " sent back an answer that couldn't be understood. " + INTAKE_RETRY_STEP
+    );
+  }
+
+  let text = message.replace(/^CertExtractor:\s*/, '');
+  if (text.length > INTAKE_MAX_ERROR_TEXT) text = text.slice(0, INTAKE_MAX_ERROR_TEXT) + '…';
+  return couldNotRead_(
+    attachmentName,
+    'something went wrong while reading it (' +
+      (text || 'no error message') +
+      '). ' +
+      INTAKE_HAND_ENTER_STEP
+  );
 }
 
 // In Apps Script every .gs file shares one global scope, so the Orchestrator

@@ -4,7 +4,9 @@
  * Three sections, in order: certificates entered, certificates flagged,
  * invoices drafted. Any section whose list is empty is omitted. When every
  * section is empty (nothing happened), `build` returns `null` so the
- * Orchestrator can skip the send. Built in Slice 5 (#6).
+ * Orchestrator can skip the send. Built in Slice 5 (#6). Since Slice 10 (#23)
+ * each flagged certificate is shown by its plain-English `detail` (why, and
+ * what to do next); the reason code stays on the item for grouping and tests.
  */
 const DigestBuilder = {
   /**
@@ -14,7 +16,8 @@ const DigestBuilder = {
    *     reason: string,
    *     certificateNumber: (string|null),
    *     studentId: (string|null),
-   *     attachmentName: string
+   *     attachmentName: string,
+   *     detail: string
    *   }>,
    *   invoicesDrafted: Array<{
    *     tabName: string,
@@ -50,8 +53,7 @@ const DigestBuilder = {
         'Certificates flagged (' + flagged.length + '):\n' +
           flagged
             .map(function (row) {
-              const id = row.certificateNumber || row.studentId || '(unknown)';
-              return '  - ' + row.reason + ': ' + id + ' (' + row.attachmentName + ')';
+              return '  - ' + row.detail;
             })
             .join('\n')
       );

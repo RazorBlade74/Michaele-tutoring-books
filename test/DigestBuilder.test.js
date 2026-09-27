@@ -66,6 +66,7 @@ test('a combined run has both sections in order: entered, flagged, drafted', () 
         certificateNumber: 'MVA-999999-C001',
         studentId: '999999',
         attachmentName: 'mystery.pdf',
+        detail: "Student ID 999999 (MVA-999999-C001, mystery.pdf) isn't on the roster.",
       },
     ],
     invoicesDrafted: [
@@ -86,7 +87,7 @@ test('a combined run has both sections in order: entered, flagged, drafted', () 
   assert.ok(enteredIdx >= 0 && flaggedIdx > enteredIdx && draftedIdx > flaggedIdx);
 });
 
-test('flagged certificates appear in the digest with reason and attachment name', () => {
+test('each flagged certificate is shown by its plain-English detail, not its reason code', () => {
   const result = Object.assign(emptyResult(), {
     certificatesFlagged: [
       {
@@ -94,12 +95,18 @@ test('flagged certificates appear in the digest with reason and attachment name'
         certificateNumber: 'MVA-999999-C001',
         studentId: '999999',
         attachmentName: 'stranger.pdf',
+        detail:
+          "Student ID 999999 (MVA-999999-C001, stranger.pdf) isn't on the roster. " +
+          'On the Config tab, add a roster row; the next run will pick it up.',
       },
       {
         reason: 'amount-unreadable',
         certificateNumber: null,
         studentId: null,
         attachmentName: 'blurry.pdf',
+        detail:
+          "Couldn't read blurry.pdf: the TOTAL AMOUNT on the certificate couldn't be read. " +
+          'Open the PDF and enter it by hand.',
       },
     ],
   });
@@ -107,11 +114,19 @@ test('flagged certificates appear in the digest with reason and attachment name'
   const digest = DigestBuilder.build(result);
 
   assert.match(digest.body, /Certificates flagged \(2\)/);
-  assert.match(digest.body, /unknown-student/);
-  assert.match(digest.body, /MVA-999999-C001/);
-  assert.match(digest.body, /stranger\.pdf/);
-  assert.match(digest.body, /amount-unreadable/);
-  assert.match(digest.body, /blurry\.pdf/);
+  assert.ok(
+    digest.body.includes(
+      "  - Student ID 999999 (MVA-999999-C001, stranger.pdf) isn't on the roster. " +
+        'On the Config tab, add a roster row; the next run will pick it up.'
+    )
+  );
+  assert.ok(
+    digest.body.includes(
+      "  - Couldn't read blurry.pdf: the TOTAL AMOUNT on the certificate couldn't be read. " +
+        'Open the PDF and enter it by hand.'
+    )
+  );
+  assert.doesNotMatch(digest.body, /unknown-student|amount-unreadable/);
 });
 
 test('a flagged-only run still produces a digest (something happened)', () => {
@@ -122,6 +137,7 @@ test('a flagged-only run still produces a digest (something happened)', () => {
         certificateNumber: null,
         studentId: null,
         attachmentName: 'blurry.pdf',
+        detail: "Couldn't read blurry.pdf: the TOTAL AMOUNT on the certificate couldn't be read.",
       },
     ],
   });
@@ -144,6 +160,7 @@ test('the subject summarises the run counts', () => {
         certificateNumber: 'MVA-999999-C001',
         studentId: '999999',
         attachmentName: 'mystery.pdf',
+        detail: "Student ID 999999 (MVA-999999-C001, mystery.pdf) isn't on the roster.",
       },
     ],
     invoicesDrafted: [
