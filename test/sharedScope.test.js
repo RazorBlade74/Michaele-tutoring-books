@@ -53,7 +53,6 @@ function appsScriptGlobalsStub() {
     DocumentApp: passthrough,
     GmailApp: passthrough,
     HtmlService: passthrough,
-    UrlFetchApp: passthrough,
     Utilities: passthrough,
     Session: passthrough,
     Logger: passthrough,

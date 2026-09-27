@@ -1,12 +1,12 @@
 /**
- * Intake.runIntake — Slice 3 (#4) robustness wiring + Slice 8 Gemini swap.
+ * Intake.runIntake — Slice 3 (#4) robustness wiring; Slice 11 (#24) PDF-text reader.
  *
  * runIntake is the I/O wiring module: in Apps Script its collaborators are
  * file-scope globals, and Node sees them as globals too. The test injects fakes
  * for the I/O collaborators (Gmail, CertExtractor, Config, Ledger) and keeps
  * the real pure CertificateNumber parser. Each fake attachment blob carries
  * the Certificate it extracts to (or a `throw` instruction), so a test states
- * intent ("this attachment is unreadable", "Gemini failed on this one")
+ * intent ("this attachment is unreadable", "a label was missing on this one")
  * directly, without PDF fixtures.
  */
 const test = require('node:test');
@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 global.CertificateNumber = require('../src/CertificateNumber.js');
 
 // Faked so a blob can carry its own extracted Certificate (see `blob` below) —
-// or throw if `blob.throws` is set, to simulate a Gemini failure.
+// or throw if `blob.throws` is set, to simulate a certificate that can't be read.
 global.CertExtractor = {
   extract(blob) {
     if (blob.throws) throw new Error(blob.throws);
@@ -62,13 +62,14 @@ function message(attachments) {
 function readableCert(certificateNumber, overrides) {
   return Object.assign(
     {
-      amountUnreadable: false,
       certificateNumber: certificateNumber,
       studentName: 'Monique Garcia',
       classActivity: 'Group Tutoring - 1 Hour',
       serviceDates: 'Apr 01, 2026',
       dateIssued: '3/25/2026',
       totalAmount: 25,
+      amountPerUnit: 25,
+      materialsFee: 0,
     },
     overrides || {}
   );
@@ -178,29 +179,10 @@ test('an unknown-student flag tells the tutor exactly what to add to the Config 
   assert.match(detail, /The next run will pick it up/);
 });
 
-test('a Certificate whose amount is unreadable is flagged, not written', () => {
-  env.messages = [message([blob('bad.pdf', { amountUnreadable: true })])];
-
-  const result = runIntake();
-
-  assert.equal(env.appended.length, 0);
-  assert.deepEqual(result.flagged, [
-    {
-      reason: 'amount-unreadable',
-      certificateNumber: null,
-      studentId: null,
-      attachmentName: 'bad.pdf',
-      detail:
-        "Couldn't read bad.pdf: the TOTAL AMOUNT on the certificate couldn't be read. " +
-        'Open the PDF and enter it by hand.',
-    },
-  ]);
-});
-
 test('an attachment that CertExtractor throws on is flagged as extraction-failed, not crashed on', () => {
   env.messages = [
     message([
-      { getName: () => 'broken.pdf', throws: 'HTTP 429' },
+      { getName: () => 'broken.pdf', throws: 'CertExtractor: the "TOTAL AMOUNT" label wasn\'t found on the certificate' },
       blob('ok.pdf', readableCert('MVA-128651-C006')),
     ]),
   ];
@@ -222,58 +204,24 @@ function extractionFailureDetail(errorMessage) {
   return runIntake().flagged[0].detail;
 }
 
-test('a retired or missing Gemini model (HTTP 404) reads differently from an unreadable PDF', () => {
+test('a certificate the reader rejects tells the tutor why, in its own words, and to enter it by hand', () => {
   const detail = extractionFailureDetail(
-    'CertExtractor: Gemini HTTP 404: {"error":{"code":404,"message":"models/gemini-2.5-flash is not found"}}'
+    'CertExtractor: the "TOTAL AMOUNT" label wasn\'t found on the certificate'
   );
 
-  assert.match(detail, /^Couldn't read MVA-76812-C028\.pdf: /);
-  assert.match(detail, /certificate reader/);
-  assert.match(detail, /error 404/);
-  assert.match(detail, /retired/);
-  assert.doesNotMatch(detail, /\{"error"/, 'the raw API body is not dumped on the tutor');
-});
-
-test('a missing Gemini API key says the reader is not set up', () => {
-  const detail = extractionFailureDetail(
-    'CertExtractor: script property GEMINI_API_KEY is not set — see docs/gemini-intake-setup.md'
+  assert.equal(
+    detail,
+    "Couldn't read MVA-76812-C028.pdf: the \"TOTAL AMOUNT\" label wasn't found on the certificate. " +
+      'Open the PDF and enter it by hand.'
   );
-
-  assert.match(detail, /^Couldn't read MVA-76812-C028\.pdf: /);
-  assert.match(detail, /isn't set up/);
-  assert.match(detail, /API key is missing/);
 });
 
-test('a rejected API key (HTTP 403) says so', () => {
-  const detail = extractionFailureDetail('CertExtractor: Gemini HTTP 403: forbidden');
+test('a long reader message is trimmed', () => {
+  const detail = extractionFailureDetail('CertExtractor: the "TOTAL AMOUNT" value "' + 'x'.repeat(500) + '" isn\'t a dollar amount');
 
-  assert.match(detail, /rejected/);
-  assert.match(detail, /error 403/);
-  assert.match(detail, /Get the setup fixed/);
-});
-
-test('any other service error (e.g. HTTP 400) asks for the setup to be fixed, not a wait', () => {
-  const detail = extractionFailureDetail('CertExtractor: Gemini HTTP 400: bad request');
-
-  assert.match(detail, /error 400/);
-  assert.match(detail, /Get the setup fixed/);
-  assert.doesNotMatch(detail, /Nothing to do yet/);
-});
-
-test('a busy or down service (HTTP 429 / 5xx) says the next run will try again', () => {
-  [429, 500, 503].forEach((code) => {
-    const detail = extractionFailureDetail('CertExtractor: Gemini HTTP ' + code + ': oops');
-
-    assert.match(detail, new RegExp('error ' + code));
-    assert.match(detail, /next run will try again/);
-  });
-});
-
-test('a garbled service response says the answer could not be understood', () => {
-  const detail = extractionFailureDetail('CertExtractor: Gemini response was not JSON: <html>');
-
-  assert.match(detail, /couldn't be understood/);
-  assert.match(detail, /next run will try again/);
+  assert.match(detail, /^Couldn't read MVA-76812-C028\.pdf: the "TOTAL AMOUNT" value/);
+  assert.match(detail, /enter it by hand/);
+  assert.ok(detail.length < 400, 'a runaway error message is truncated');
 });
 
 test('an unrecognised extraction error still carries the error message, trimmed', () => {
@@ -331,7 +279,7 @@ test('runIntake returns a structured result of what was entered and what was fla
   env.messages = [
     message([
       blob('ok.pdf', readableCert('MVA-128651-C006')),
-      blob('bad.pdf', { amountUnreadable: true }),
+      { getName: () => 'bad.pdf', throws: 'CertExtractor: the "DATE ISSUED" label wasn\'t found on the certificate' },
     ]),
   ];
 
@@ -341,5 +289,5 @@ test('runIntake returns a structured result of what was entered and what was fla
     { certificateNumber: 'MVA-128651-C006', tabName: 'Monique' },
   ]);
   assert.equal(result.flagged.length, 1);
-  assert.equal(result.flagged[0].reason, 'amount-unreadable');
+  assert.equal(result.flagged[0].reason, 'extraction-failed');
 });

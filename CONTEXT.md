@@ -15,9 +15,13 @@ Fixed-template PDF; fields: `CERTIFICATE NUMBER`, `STUDENT NAME` (full name),
 `SCHOOL NAME`, `VENDOR NAME`, `CLASS/ACTIVITY`, `SERVICE UNIT` (Per Hour / Per
 Month), `NOTES`, `SERVICE DATE(S)`, `AMOUNT PER UNIT`, `MATERIALS FEE`,
 `TOTAL AMOUNT` (the approved amount), `ORDER NUMBER`, `DATE ISSUED`,
-`ENRICHMENT SPECIALIST`, `EMAIL`, `CANCELLATION REQUIRED BY`. The PDF text layer
-extracts the left-column fields cleanly but drops the right-hand money column
-(`TOTAL AMOUNT` included) — OCR is required to capture the approved amount.
+`ENRICHMENT SPECIALIST`, `EMAIL`, `CANCELLATION REQUIRED BY`, `SERVICE
+LOCATION`. Every field, the right-hand money column included, is real text in
+the PDF: each label is followed on the same row by its value. The automation
+reads the certificate by parsing that text directly — no OCR, no AI — matching
+each value to its label by row, not fixed coordinates, and flags any
+certificate whose labels don't match the template instead of guessing. See
+ADR 0004.
 _Avoid_: cert email, approval doc
 
 **Order**:

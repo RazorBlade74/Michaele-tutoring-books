@@ -143,7 +143,7 @@ test('a combined run sends a digest with all three sections', () => {
       entered: [{ certificateNumber: 'MVA-128651-C006', tabName: 'Monique' }],
       flagged: [
         {
-          reason: 'amount-unreadable',
+          reason: 'extraction-failed',
           certificateNumber: null,
           studentId: null,
           attachmentName: 'blurry.pdf',

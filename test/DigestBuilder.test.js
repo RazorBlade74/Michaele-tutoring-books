@@ -100,7 +100,7 @@ test('each flagged certificate is shown by its plain-English detail, not its rea
           'On the Config tab, add a roster row; the next run will pick it up.',
       },
       {
-        reason: 'amount-unreadable',
+        reason: 'extraction-failed',
         certificateNumber: null,
         studentId: null,
         attachmentName: 'blurry.pdf',
@@ -126,14 +126,14 @@ test('each flagged certificate is shown by its plain-English detail, not its rea
         'Open the PDF and enter it by hand.'
     )
   );
-  assert.doesNotMatch(digest.body, /unknown-student|amount-unreadable/);
+  assert.doesNotMatch(digest.body, /unknown-student|extraction-failed/);
 });
 
 test('a flagged-only run still produces a digest (something happened)', () => {
   const result = Object.assign(emptyResult(), {
     certificatesFlagged: [
       {
-        reason: 'amount-unreadable',
+        reason: 'extraction-failed',
         certificateNumber: null,
         studentId: null,
         attachmentName: 'blurry.pdf',

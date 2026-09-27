@@ -1,56 +1,38 @@
 /**
- * CertExtractor (I/O) — PDF blob to structured Certificate via Gemini 2.5 Flash.
+ * CertExtractor — PDF blob to structured Certificate, read straight from the
+ * PDF's own text (Slice 11, #24; ADR 0004). No AI, no API key, no OCR.
  *
- * The certificate is a two-column PDF whose money column (TOTAL AMOUNT etc.)
- * doesn't survive Drive's PDF-to-Doc OCR conversion. We send the PDF directly
- * to Gemini with a `responseSchema` and let the model return the fields as
- * JSON — more accurate on this template than label-anchored regex over OCR
- * text, and resilient to Drive OCR regressing again.
+ * MVA certificates come from one fixed iText template whose every field is
+ * real text: a label block (`TOTAL AMOUNT:`) with its value block on the same
+ * row, to its right. Exact positions shift between certificates (a logo
+ * pushes rows around), so we match by label and row, never by fixed
+ * coordinates. Anything off-template — a missing or doubled label, a blank
+ * value, an amount that isn't `$N.NN` — throws a message naming the label,
+ * which Intake shows the tutor. It never guesses and never returns a partial
+ * Certificate.
  *
- * Reads the API key from `PropertiesService` script property `GEMINI_API_KEY`.
- * Setup steps are in `docs/gemini-intake-setup.md`.
- *
- * Model is pinned to `gemini-2.5-flash` so a Google-side bump can't silently
- * change extraction behavior. Bump deliberately when revisiting.
+ * Thrown messages start `CertExtractor: ` followed by a phrase Intake quotes
+ * to the tutor verbatim: keep them plain English.
  */
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
-const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/' +
-  GEMINI_MODEL +
-  ':generateContent';
-
-const EXTRACTION_PROMPT = [
-  'The attached PDF is an MVA (Mission Vista Academy) enrichment certificate.',
-  'Extract these fields verbatim from the document and return JSON matching the schema:',
-  '- certificateNumber: the value labeled "CERTIFICATE NUMBER" (format MVA-{digits}-C{digits}).',
-  '- studentName: the value labeled "STUDENT NAME".',
-  '- classActivity: the value labeled "CLASS/ACTIVITY".',
-  '- serviceDates: the value labeled "SERVICE DATE(S)".',
-  '- dateIssued: the value labeled "DATE ISSUED", in M/D/YYYY form.',
-  '- totalAmount: the dollar value labeled "TOTAL AMOUNT" as a number — no currency symbol, no commas.',
-  'If a field is missing or unreadable, return an empty string for it (or 0 for totalAmount).',
-].join('\n');
-
-const RESPONSE_SCHEMA = {
-  type: 'object',
-  properties: {
-    certificateNumber: { type: 'string' },
-    studentName: { type: 'string' },
-    classActivity: { type: 'string' },
-    serviceDates: { type: 'string' },
-    dateIssued: { type: 'string' },
-    totalAmount: { type: 'number' },
-  },
-  required: [
-    'certificateNumber',
-    'studentName',
-    'classActivity',
-    'serviceDates',
-    'dateIssued',
-    'totalAmount',
-  ],
+// Labels as printed on the certificate, without the trailing colon.
+const CERT_TEXT_FIELDS = {
+  certificateNumber: 'CERTIFICATE NUMBER',
+  studentName: 'STUDENT NAME',
+  classActivity: 'CLASS/ACTIVITY',
+  serviceDates: 'SERVICE DATE(S)',
+  dateIssued: 'DATE ISSUED',
 };
+const CERT_MONEY_FIELDS = {
+  totalAmount: 'TOTAL AMOUNT',
+  amountPerUnit: 'AMOUNT PER UNIT',
+  materialsFee: 'MATERIALS FEE',
+};
+// Same row = baselines within this many points.
+const CERT_ROW_TOLERANCE = 0.5;
+// A long value wraps 12pt down at the same x; the next field's row is 16pt
+// down. Anything closer than this below a value continues it.
+const CERT_WRAP_MAX_DROP = 14;
 
 const CertExtractor = {
   /**
@@ -62,93 +44,84 @@ const CertExtractor = {
    *   serviceDates: string,
    *   dateIssued: string,
    *   totalAmount: number,
-   *   amountUnreadable: false
-   * } | { amountUnreadable: true }}
-   * @throws when the API key is missing, the HTTP call fails, or the response
-   *   isn't the JSON shape we asked for — Intake catches and flags these.
+   *   amountPerUnit: number,
+   *   materialsFee: number
+   * }}
+   * @throws when the PDF can't be read or a field is missing or malformed —
+   *   Intake catches and flags these.
    */
   extract(pdfBlob) {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!apiKey) {
-      throw new Error(
-        'CertExtractor: script property GEMINI_API_KEY is not set — see docs/gemini-intake-setup.md'
-      );
+    let runs;
+    try {
+      runs = PdfText.textRuns(pdfBlob.getBytes());
+    } catch (e) {
+      throw new Error("CertExtractor: couldn't read the PDF's text (" + e.message + ')');
     }
 
-    const payload = {
-      contents: [
-        {
-          parts: [
-            {
-              inline_data: {
-                mime_type: 'application/pdf',
-                data: Utilities.base64Encode(pdfBlob.getBytes()),
-              },
-            },
-            { text: EXTRACTION_PROMPT },
-          ],
-        },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
-      },
-    };
-
-    const response = UrlFetchApp.fetch(GEMINI_ENDPOINT + '?key=' + encodeURIComponent(apiKey), {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true,
+    const cert = {};
+    Object.keys(CERT_TEXT_FIELDS).forEach(function (field) {
+      cert[field] = CertExtractor.valueRightOf(runs, CERT_TEXT_FIELDS[field]);
     });
+    Object.keys(CERT_MONEY_FIELDS).forEach(function (field) {
+      const label = CERT_MONEY_FIELDS[field];
+      cert[field] = certParseMoney_(label, CertExtractor.valueRightOf(runs, label));
+    });
+    return cert;
+  },
 
-    const code = response.getResponseCode();
-    const body = response.getContentText();
-    if (code < 200 || code >= 300) {
-      throw new Error('CertExtractor: Gemini HTTP ' + code + ': ' + body);
+  /**
+   * The text printed to the right of `label` on the same row — the nearest
+   * run, which must not itself be another label — plus any lines it wraps
+   * onto, joined with spaces.
+   *
+   * @param {Array<{ x: number, y: number, text: string }>} runs from PdfText
+   * @param {string} label as printed, without the trailing colon
+   * @returns {string} the value, trimmed
+   * @throws when the label is missing, doubled, or has no value beside it
+   */
+  valueRightOf(runs, label) {
+    const labelRuns = runs.filter(function (run) {
+      return run.text.trim() === label + ':';
+    });
+    if (labelRuns.length === 0) {
+      throw new Error('CertExtractor: the "' + label + '" label wasn\'t found on the certificate');
+    }
+    if (labelRuns.length > 1) {
+      throw new Error('CertExtractor: the "' + label + '" label appears more than once on the certificate');
+    }
+    const labelRun = labelRuns[0];
+
+    let nearest = null;
+    runs.forEach(function (run) {
+      if (Math.abs(run.y - labelRun.y) > CERT_ROW_TOLERANCE || run.x <= labelRun.x || !run.text.trim()) return;
+      if (!nearest || run.x < nearest.x) nearest = run;
+    });
+    // An all-caps phrase ending in a colon is the next label along the row.
+    if (!nearest || /^[A-Z][A-Z0-9 /()&-]*:$/.test(nearest.text.trim())) {
+      throw new Error('CertExtractor: the "' + label + '" label has no value next to it on the certificate');
     }
 
-    let envelope;
-    try {
-      envelope = JSON.parse(body);
-    } catch (e) {
-      throw new Error('CertExtractor: Gemini response was not JSON: ' + body);
+    const lines = [nearest.text.trim()];
+    let line = nearest;
+    for (;;) {
+      const next = runs.filter(function (run) {
+        const drop = line.y - run.y;
+        return Math.abs(run.x - nearest.x) <= CERT_ROW_TOLERANCE && drop > CERT_ROW_TOLERANCE && drop < CERT_WRAP_MAX_DROP;
+      })[0];
+      if (!next) break;
+      lines.push(next.text.trim());
+      line = next;
     }
-
-    const textPart =
-      envelope &&
-      envelope.candidates &&
-      envelope.candidates[0] &&
-      envelope.candidates[0].content &&
-      envelope.candidates[0].content.parts &&
-      envelope.candidates[0].content.parts[0] &&
-      envelope.candidates[0].content.parts[0].text;
-    if (!textPart) {
-      throw new Error('CertExtractor: Gemini response missing candidates[0].content.parts[0].text: ' + body);
-    }
-
-    let cert;
-    try {
-      cert = JSON.parse(textPart);
-    } catch (e) {
-      throw new Error('CertExtractor: Gemini structured-output text was not JSON: ' + textPart);
-    }
-
-    if (!cert.totalAmount || cert.totalAmount === 0) {
-      return { amountUnreadable: true };
-    }
-
-    return {
-      certificateNumber: cert.certificateNumber,
-      studentName: cert.studentName,
-      classActivity: cert.classActivity,
-      serviceDates: cert.serviceDates,
-      dateIssued: cert.dateIssued,
-      totalAmount: cert.totalAmount,
-      amountUnreadable: false,
-    };
+    return lines.join(' ');
   },
 };
+
+function certParseMoney_(label, text) {
+  if (!/^\$\s?(\d{1,3}(,\d{3})+|\d+)(\.\d{2})?$/.test(text)) {
+    throw new Error('CertExtractor: the "' + label + '" value "' + text + '" isn\'t a dollar amount');
+  }
+  return Number(text.replace(/[$,\s]/g, ''));
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = CertExtractor;
