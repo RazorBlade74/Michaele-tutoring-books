@@ -4,7 +4,8 @@
  * runIntake is the I/O wiring module: in Apps Script its collaborators are
  * file-scope globals, and Node sees them as globals too. The test injects fakes
  * for the I/O collaborators (Gmail, CertExtractor, Config, Ledger) and keeps
- * the real pure CertificateNumber parser. Each fake attachment blob carries
+ * the real pure CertificateNumber parser and CertCheck cross-checks (Slice 12,
+ * #25). Each fake attachment blob carries
  * the Certificate it extracts to (or a `throw` instruction), so a test states
  * intent ("this attachment is unreadable", "a label was missing on this one")
  * directly, without PDF fixtures.
@@ -13,6 +14,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 global.CertificateNumber = require('../src/CertificateNumber.js');
+global.CertCheck = require('../src/CertCheck.js');
 
 // Faked so a blob can carry its own extracted Certificate (see `blob` below) —
 // or throw if `blob.throws` is set, to simulate a certificate that can't be read.
@@ -78,7 +80,7 @@ function readableCert(certificateNumber, overrides) {
 test.beforeEach(() => {
   env = {
     roster: [
-      { studentId: '128651', certName: 'M Garcia', tabName: 'Monique', active: true },
+      { studentId: '128651', certName: 'Monique Garcia', tabName: 'Monique', active: true },
     ],
     goLiveDate: new Date('2026-01-01'),
     messages: [],
@@ -290,4 +292,78 @@ test('runIntake returns a structured result of what was entered and what was fla
   ]);
   assert.equal(result.flagged.length, 1);
   assert.equal(result.flagged[0].reason, 'extraction-failed');
+});
+
+test('a Certificate failing a cross-check is held back — not written — and flagged with why', () => {
+  env.messages = [
+    message([
+      blob('c6.pdf', readableCert('MVA-128651-C006', { studentName: 'Monique Garcya' })),
+      blob('c7.pdf', readableCert('MVA-128651-C007')),
+    ]),
+  ];
+
+  const result = runIntake();
+
+  assert.deepEqual(result.entered, [{ certificateNumber: 'MVA-128651-C007', tabName: 'Monique' }]);
+  assert.deepEqual(env.appended.map((a) => a.row.certificateNumber), ['MVA-128651-C007']);
+  assert.deepEqual(result.flagged, [
+    {
+      reason: 'failed-check',
+      certificateNumber: 'MVA-128651-C006',
+      studentId: '128651',
+      attachmentName: 'c6.pdf',
+      detail:
+        'Certificate MVA-128651-C006 says "Monique Garcya" but the roster says "Monique Garcia". ' +
+        'If the certificate is right, update Cert Name on the Config tab; if the roster is right, ' +
+        'enter the certificate by hand.',
+    },
+  ]);
+});
+
+test('every failed cross-check on one Certificate is named in its flag', () => {
+  env.messages = [
+    message([blob('c6.pdf', readableCert('MVA-128651-C006', { totalAmount: 30, dateIssued: '2/30/2026' }))]),
+  ];
+
+  const detail = runIntake().flagged[0].detail;
+
+  assert.match(detail, /DATE ISSUED of "2\/30\/2026"/);
+  assert.match(detail, /TOTAL AMOUNT of \$30\.00/);
+});
+
+test('a held-back Certificate is entered on the next run once its cause is fixed', () => {
+  env.roster[0].certName = 'Monique Garsia';
+  env.messages = [message([blob('c6.pdf', readableCert('MVA-128651-C006'))])];
+
+  const first = runIntake();
+  assert.equal(first.flagged.length, 1);
+  assert.equal(env.appended.length, 0);
+
+  env.roster[0].certName = 'Monique Garcia'; // the tutor corrects the roster
+
+  const second = runIntake();
+  assert.equal(second.flagged.length, 0);
+  assert.deepEqual(second.entered, [{ certificateNumber: 'MVA-128651-C006', tabName: 'Monique' }]);
+});
+
+test('a Certificate already on the ledger is not re-checked, so a later roster edit never flags it', () => {
+  env.ledger['Monique'] = [{ type: 'Certificate', certificateNumber: 'MVA-128651-C006' }];
+  env.roster[0].certName = 'Someone Else';
+  env.messages = [message([blob('c6.pdf', readableCert('MVA-128651-C006'))])];
+
+  const result = runIntake();
+
+  assert.equal(result.flagged.length, 0);
+  assert.equal(env.appended.length, 0);
+});
+
+test('a held-back Certificate surfaced twice in one run is flagged once', () => {
+  const sameOrder = () =>
+    message([blob('c6.pdf', readableCert('MVA-128651-C006', { studentName: 'Someone Else' }))]);
+  env.messages = [sameOrder(), sameOrder()];
+
+  const result = runIntake();
+
+  assert.equal(result.flagged.length, 1);
+  assert.equal(env.appended.length, 0);
 });

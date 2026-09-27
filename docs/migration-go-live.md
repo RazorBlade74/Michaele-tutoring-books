@@ -36,7 +36,7 @@ From issue #7. Walk these in order; if a Student has no movement in the old shee
 | 77251 | Kira Phung | Kira |
 | 92472 | Heavenlee Alcala | Heavenlee |
 
-`Cert Name` must match the full name MVA prints on the Certificate (it appears on the invoice). Confirm spelling with the tutor before entry — it is what AP sees.
+`Cert Name` must match the full name MVA prints on the Certificate (it appears on the invoice). Confirm spelling with the tutor before entry — it is what AP sees. Intake enforces this: a Certificate whose `STUDENT NAME` differs from `Cert Name` (ignoring case and extra spaces) is held back and flagged in the digest, naming both spellings, until one is corrected.
 
 `Tab Name` must exactly equal the Sheet tab name for that Student (case- and space-sensitive — `LedgerGateway` looks the tab up by this string).
 

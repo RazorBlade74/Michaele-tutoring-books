@@ -12,7 +12,10 @@
  * plain-English `detail` — why it was set aside and what the tutor should do
  * next — derived from the thrown error when extraction fails. Slice 11 (#24)
  * reads the certificate straight from the PDF's text (ADR 0004), so a failed
- * read names the label that was missing or malformed.
+ * read names the label that was missing or malformed. Slice 12 (#25)
+ * cross-checks each Certificate (CertCheck) before writing it: one that
+ * doesn't add up, or whose name disagrees with the roster, is held back and
+ * flagged as `failed-check`.
  */
 
 /**
@@ -55,6 +58,10 @@ function runIntake() {
     }
     return seenByTab[tabName];
   }
+
+  // Certificates this run held back on a failed cross-check, so a failing
+  // Certificate surfaced by several emails is flagged once.
+  const heldBack = {};
 
   GmailIntakeSource.findCertificateEmails(goLiveDate).forEach(function (message) {
     GmailIntakeSource.getPdfAttachments(message).forEach(function (pdfBlob) {
@@ -102,6 +109,22 @@ function runIntake() {
 
       const seen = seenCertNumbers(rosterEntry.tabName);
       if (seen[cert.certificateNumber]) return; // already on the ledger — skip silently
+      if (heldBack[cert.certificateNumber]) return; // already flagged this run
+
+      // Hold back anything that doesn't add up rather than write it. The next
+      // run re-reads the email, so it's entered once the cause is fixed.
+      const problems = CertCheck.problems(cert, rosterEntry.certName);
+      if (problems.length > 0) {
+        heldBack[cert.certificateNumber] = true;
+        result.flagged.push({
+          reason: 'failed-check',
+          certificateNumber: cert.certificateNumber,
+          studentId: studentId,
+          attachmentName: pdfBlob.getName(),
+          detail: problems.join(' '),
+        });
+        return;
+      }
 
       LedgerGateway.appendRow(rosterEntry.tabName, {
         date: cert.dateIssued,
