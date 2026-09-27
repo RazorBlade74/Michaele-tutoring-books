@@ -1,3 +1,8 @@
 node_modules/
 .clasp.json
 .clasprc.json
+
+# Real Enrichment Certificates carry children's names: never commit them.
+# Turn one into a fixture with scripts/scrub-cert-pdf.js instead.
+*.pdf
+!test/fixtures/*.pdf
