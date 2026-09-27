@@ -30,6 +30,9 @@ const CERT_MONEY_FIELDS = {
 };
 // Same row = baselines within this many points.
 const CERT_ROW_TOLERANCE = 0.5;
+// A long value wraps 12pt down at the same x; the next field's row is 16pt
+// down. Anything closer than this below a value continues it.
+const CERT_WRAP_MAX_DROP = 14;
 
 const CertExtractor = {
   /**
@@ -60,14 +63,16 @@ const CertExtractor = {
       cert[field] = CertExtractor.valueRightOf(runs, CERT_TEXT_FIELDS[field]);
     });
     Object.keys(CERT_MONEY_FIELDS).forEach(function (field) {
-      cert[field] = certParseMoney_(CERT_MONEY_FIELDS[field], CertExtractor.valueRightOf(runs, CERT_MONEY_FIELDS[field]));
+      const label = CERT_MONEY_FIELDS[field];
+      cert[field] = certParseMoney_(label, CertExtractor.valueRightOf(runs, label));
     });
     return cert;
   },
 
   /**
    * The text printed to the right of `label` on the same row — the nearest
-   * run, which must not itself be another label.
+   * run, which must not itself be another label — plus any lines it wraps
+   * onto, joined with spaces.
    *
    * @param {Array<{ x: number, y: number, text: string }>} runs from PdfText
    * @param {string} label as printed, without the trailing colon
@@ -84,18 +89,30 @@ const CertExtractor = {
     if (labelRuns.length > 1) {
       throw new Error('CertExtractor: the "' + label + '" label appears more than once on the certificate');
     }
-    const at = labelRuns[0];
+    const labelRun = labelRuns[0];
 
     let nearest = null;
     runs.forEach(function (run) {
-      if (Math.abs(run.y - at.y) > CERT_ROW_TOLERANCE || run.x <= at.x || !run.text.trim()) return;
+      if (Math.abs(run.y - labelRun.y) > CERT_ROW_TOLERANCE || run.x <= labelRun.x || !run.text.trim()) return;
       if (!nearest || run.x < nearest.x) nearest = run;
     });
     // An all-caps phrase ending in a colon is the next label along the row.
     if (!nearest || /^[A-Z][A-Z0-9 /()&-]*:$/.test(nearest.text.trim())) {
       throw new Error('CertExtractor: the "' + label + '" label has no value next to it on the certificate');
     }
-    return nearest.text.trim();
+
+    const lines = [nearest.text.trim()];
+    let line = nearest;
+    for (;;) {
+      const next = runs.filter(function (run) {
+        const drop = line.y - run.y;
+        return Math.abs(run.x - nearest.x) <= CERT_ROW_TOLERANCE && drop > CERT_ROW_TOLERANCE && drop < CERT_WRAP_MAX_DROP;
+      })[0];
+      if (!next) break;
+      lines.push(next.text.trim());
+      line = next;
+    }
+    return lines.join(' ');
   },
 };
 

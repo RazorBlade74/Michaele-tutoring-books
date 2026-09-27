@@ -46,44 +46,67 @@ function pdfLatin1_(bytes) {
   return text;
 }
 
-/** Offset of each `N G obj` header; the last definition wins (incremental updates). */
+/**
+ * Offset of each `N G obj` header; the last definition wins (incremental
+ * updates). Stream bodies with a direct `/Length` are jumped over, so bytes
+ * inside compressed data (the logo image) can't pass for an object header.
+ */
 function pdfObjectOffsets_(pdf) {
   const offsets = {};
   const re = /(?:^|[\r\n\s])(\d+)\s+(\d+)\s+obj\b/g;
   let m;
   while ((m = re.exec(pdf))) {
     offsets[m[1]] = m.index + m[0].length;
+    const obj = pdfObjectHead_(pdf, offsets, m[1]);
+    const length = pdfDirectLength_(obj.head);
+    if (obj.streamAt !== -1 && length !== null) {
+      re.lastIndex = pdfStreamStart_(pdf, obj) + length;
+    }
   }
   return offsets;
+}
+
+/** The dictionary's `/Length` when it's a plain number, else null. */
+function pdfDirectLength_(dict) {
+  const m = /\/Length\s+(\d+)\b(?!\s+\d+\s+R\b)/.exec(dict);
+  return m ? Number(m[1]) : null;
+}
+
+/** Offset of a stream's first data byte: after `stream` and its end-of-line. */
+function pdfStreamStart_(pdf, obj) {
+  let at = obj.start + obj.streamAt + 'stream'.length;
+  if (pdf[at] === '\r') at++;
+  if (pdf[at] === '\n') at++;
+  return at;
 }
 
 /** The dictionary text of object `num` — from `obj` up to `stream` / `endobj`. */
 function pdfObjectHead_(pdf, offsets, num) {
   const start = offsets[num];
   if (start === undefined) throw new Error('PDF object ' + num + ' not found');
-  const end = pdf.indexOf('endobj', start);
-  const head = pdf.slice(start, end === -1 ? undefined : end);
-  const streamAt = head.search(/\bstream\r?\n/);
-  return { start: start, head: streamAt === -1 ? head : head.slice(0, streamAt), streamAt: streamAt };
+  // The dictionary ends at `stream` or `endobj`, whichever comes first; only
+  // the text before it is scanned, never the stream body.
+  const end = /\bstream\r?\n|\bendobj\b/g;
+  end.lastIndex = start;
+  const m = end.exec(pdf);
+  const stop = m ? m.index : pdf.length;
+  const isStream = !!m && m[0].indexOf('stream') === 0;
+  return { start: start, head: pdf.slice(start, stop), streamAt: isStream ? stop - start : -1 };
 }
 
 function pdfStreamData_(pdf, offsets, num) {
   const obj = pdfObjectHead_(pdf, offsets, num);
   if (obj.streamAt === -1) throw new Error('PDF object ' + num + ' is not a stream');
   const dict = obj.head;
+  const dataStart = pdfStreamStart_(pdf, obj);
 
-  let dataStart = obj.start + obj.streamAt + 'stream'.length;
-  if (pdf[dataStart] === '\r') dataStart++;
-  if (pdf[dataStart] === '\n') dataStart++;
-
-  let length;
-  const direct = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(dict);
-  const indirect = /\/Length\s+(\d+)\s+\d+\s+R/.exec(dict);
-  if (direct) {
-    length = Number(direct[1]);
-  } else if (indirect) {
-    length = Number(/^\s*(\d+)/.exec(pdfObjectHead_(pdf, offsets, indirect[1]).head)[1]);
-  } else {
+  let length = pdfDirectLength_(dict);
+  const indirect = /\/Length\s+(\d+)\s+\d+\s+R\b/.exec(dict);
+  if (length === null && indirect) {
+    const value = /^\s*(\d+)/.exec(pdfObjectHead_(pdf, offsets, indirect[1]).head);
+    if (!value) throw new Error('PDF object ' + num + ' has an unreadable /Length');
+    length = Number(value[1]);
+  } else if (length === null) {
     length = pdf.indexOf('endstream', dataStart) - dataStart;
   }
   const raw = pdf.slice(dataStart, dataStart + length);
@@ -204,8 +227,9 @@ function pdfTokens_(content) {
     } else if (c === ']') {
       if (stack.length > 1) stack.pop();
       i++;
-    } else if (c === '<' || c === '>' || c === '{' || c === '}') {
-      // Dictionary delimiters only appear around marked-content properties.
+    } else if (c === '<' || c === '>' || c === '{' || c === '}' || c === ')') {
+      // Dictionary delimiters only appear around marked-content properties; a
+      // stray `)` carries nothing.
       i += content[i + 1] === c ? 2 : 1;
     } else if (c === '/') {
       const m = /^\/[^\s\/\[\]()<>{}%]*/.exec(content.slice(i, i + 128));
@@ -213,7 +237,7 @@ function pdfTokens_(content) {
       i += m[0].length;
     } else {
       const m = /^[^\s\/\[\]()<>{}%]+/.exec(content.slice(i, i + 128));
-      const word = m[0];
+      const word = m ? m[0] : content[i];
       i += word.length;
       if (/^[+-]?(\d+\.?\d*|\.\d+)$/.test(word)) {
         push(Number(word));
@@ -252,38 +276,38 @@ function pdfReplayText_(content, runs) {
       operands.push(token);
       return;
     }
-    const a = operands;
+    const args = operands;
     operands = [];
     switch (token.op) {
       case 'BT':
         tm = tlm = [1, 0, 0, 1, 0, 0];
         break;
       case 'Tm':
-        tm = tlm = a.slice(-6);
+        tm = tlm = args.slice(-6);
         break;
       case 'Td':
-        moveLine(a[a.length - 2], a[a.length - 1]);
+        moveLine(args[args.length - 2], args[args.length - 1]);
         break;
       case 'TD':
-        leading = -a[a.length - 1];
-        moveLine(a[a.length - 2], a[a.length - 1]);
+        leading = -args[args.length - 1];
+        moveLine(args[args.length - 2], args[args.length - 1]);
         break;
       case 'TL':
-        leading = a[a.length - 1];
+        leading = args[args.length - 1];
         break;
       case 'T*':
         moveLine(0, -leading);
         break;
       case 'Tj':
-        if (a.length && a[a.length - 1].str !== undefined) show(a[a.length - 1].str);
+        if (args.length && args[args.length - 1].str !== undefined) show(args[args.length - 1].str);
         break;
       case "'":
       case '"':
         moveLine(0, -leading);
-        if (a.length && a[a.length - 1].str !== undefined) show(a[a.length - 1].str);
+        if (args.length && args[args.length - 1].str !== undefined) show(args[args.length - 1].str);
         break;
       case 'TJ': {
-        const arr = a[a.length - 1];
+        const arr = args[args.length - 1];
         if (Array.isArray(arr)) {
           show(
             arr

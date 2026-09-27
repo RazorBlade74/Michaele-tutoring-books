@@ -134,6 +134,19 @@ test('reads a synthetic certificate, parsing money with thousands separators', (
   assert.equal(cert.certificateNumber, 'MVA-128651-C006');
 });
 
+test('a value that wraps onto a second line is read whole, not cut short', () => {
+  // The template wraps long values 12pt down at the same x, as NOTES does on the
+  // Group Tutoring fixture; rows are 16pt apart.
+  const content =
+    certContent({ classActivity: 'Individual Tutoring - Language Arts and' }) +
+    textBlock(312, 380, 'Reading Comprehension');
+
+  const cert = CertExtractor.extract({ getName: () => 'x.pdf', getBytes: () => Array.from(buildPdf(content)) });
+
+  assert.equal(cert.classActivity, 'Individual Tutoring - Language Arts and Reading Comprehension');
+  assert.equal(cert.serviceDates, 'Sep 2026', 'the next row is not swallowed');
+});
+
 test('a missing label fails loudly, naming the label', () => {
   assert.throws(
     () => CertExtractor.extract(syntheticBlob({ totalAmount: null })),

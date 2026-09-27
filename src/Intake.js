@@ -177,9 +177,8 @@ function describeUnknownStudent_(studentId, cert, attachmentName) {
  */
 function describeExtractionError_(attachmentName, error) {
   const message = String((error && error.message) || error || '');
-  const fromReader = /^CertExtractor:\s*/.test(message);
-
   let text = message.replace(/^CertExtractor:\s*/, '');
+  const fromReader = text !== message;
   if (text.length > INTAKE_MAX_ERROR_TEXT) text = text.slice(0, INTAKE_MAX_ERROR_TEXT) + '…';
   if (fromReader && text) {
     return couldNotRead_(attachmentName, text + '. ' + INTAKE_HAND_ENTER_STEP);

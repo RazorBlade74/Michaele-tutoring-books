@@ -3,6 +3,8 @@ node_modules/
 .clasprc.json
 
 # Real Enrichment Certificates carry children's names: never commit them.
-# Turn one into a fixture with scripts/scrub-cert-pdf.js instead.
+# Turn one into a fixture with scripts/scrub-cert-pdf.js instead, and list
+# each scrubbed fixture here by name — never a wildcard.
 *.pdf
-!test/fixtures/*.pdf
+!test/fixtures/cert-group-monthly.pdf
+!test/fixtures/cert-individual-math-logo.pdf
