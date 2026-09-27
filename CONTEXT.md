@@ -21,7 +21,12 @@ the PDF: each label is followed on the same row by its value. The automation
 reads the certificate by parsing that text directly — no OCR, no AI — matching
 each value to its label by row, not fixed coordinates, and flags any
 certificate whose labels don't match the template instead of guessing. See
-ADR 0004.
+ADR 0004. Before a Certificate is written it must also pass the **cross-checks**
+(`CertCheck`): a well-formed Certificate Number, whole-cent money with `TOTAL
+AMOUNT` > $0 and equal to `n × AMOUNT PER UNIT + MATERIALS FEE` for a whole
+n ≥ 1, a `STUDENT NAME` matching the roster's `Cert Name` (ignoring case and
+whitespace), and a real `DATE ISSUED`. A failure holds it back and flags it;
+the next run enters it once the cause is fixed.
 _Avoid_: cert email, approval doc
 
 **Order**:
