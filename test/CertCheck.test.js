@@ -104,7 +104,8 @@ test('a student name differing from the roster only in case and whitespace passe
 test('a genuinely different student name is flagged, naming both spellings', () => {
   assert.deepEqual(CertCheck.problems(cert({ studentName: 'Phoebe Hanson' }), 'Phoebe Hansen'), [
     'Certificate MVA-56239-C065 says "Phoebe Hanson" but the roster says "Phoebe Hansen". ' +
-      'If the certificate is right, update Cert Name on the Config tab.',
+      'If the certificate is right, update Cert Name on the Config tab; if the roster is right, ' +
+      'enter the certificate by hand.',
   ]);
 });
 
@@ -174,4 +175,14 @@ test('both scrubbed certificate fixtures, read by CertExtractor, pass every chec
 
     assert.deepEqual(CertCheck.problems(extracted, 'Test Student'), [], name);
   });
+});
+
+test('a $0 AMOUNT PER UNIT is flagged, even when the total equals the materials fee', () => {
+  assert.deepEqual(
+    CertCheck.problems(cert({ totalAmount: 10, amountPerUnit: 0, materialsFee: 10 }), 'Phoebe Hansen'),
+    [
+      'Certificate MVA-56239-C065 has an AMOUNT PER UNIT of $0.00, so its TOTAL AMOUNT can\'t be a whole ' +
+        "number of units. Check the PDF; if it's right, enter it by hand.",
+    ]
+  );
 });

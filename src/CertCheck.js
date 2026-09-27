@@ -85,11 +85,13 @@ const CertCheck = {
       const total = certCheckCents_(cert.totalAmount);
       const perUnit = certCheckCents_(cert.amountPerUnit);
       const units = total - certCheckCents_(cert.materialsFee);
-      // TOTAL AMOUNT = n × AMOUNT PER UNIT + MATERIALS FEE for a whole n ≥ 1.
-      const wholeUnits = perUnit === 0 ? units === 0 : units >= perUnit && units % perUnit === 0;
       if (total === 0) {
         holdBack('has a TOTAL AMOUNT of $0.00; an approved certificate is always for more than $0');
-      } else if (!wholeUnits) {
+      } else if (perUnit === 0) {
+        // Any n fits a $0 unit, so the total can't vouch for it: likely a misread.
+        holdBack("has an AMOUNT PER UNIT of $0.00, so its TOTAL AMOUNT can't be a whole number of units");
+      } else if (units < perUnit || units % perUnit !== 0) {
+        // TOTAL AMOUNT must be n × AMOUNT PER UNIT + MATERIALS FEE for a whole n ≥ 1.
         holdBack(
           'has a TOTAL AMOUNT of ' +
             certCheckMoney_(cert.totalAmount) +
@@ -123,7 +125,8 @@ const CertCheck = {
           certName +
           '" but the roster says "' +
           rosterName +
-          '". If the certificate is right, update Cert Name on the Config tab.'
+          '". If the certificate is right, update Cert Name on the Config tab; ' +
+          'if the roster is right, enter the certificate by hand.'
       );
     }
 

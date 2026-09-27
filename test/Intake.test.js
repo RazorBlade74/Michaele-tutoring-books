@@ -314,7 +314,8 @@ test('a Certificate failing a cross-check is held back — not written — and f
       attachmentName: 'c6.pdf',
       detail:
         'Certificate MVA-128651-C006 says "Monique Garcya" but the roster says "Monique Garcia". ' +
-        'If the certificate is right, update Cert Name on the Config tab.',
+        'If the certificate is right, update Cert Name on the Config tab; if the roster is right, ' +
+        'enter the certificate by hand.',
     },
   ]);
 });
@@ -353,5 +354,16 @@ test('a Certificate already on the ledger is not re-checked, so a later roster e
   const result = runIntake();
 
   assert.equal(result.flagged.length, 0);
+  assert.equal(env.appended.length, 0);
+});
+
+test('a held-back Certificate surfaced twice in one run is flagged once', () => {
+  const sameOrder = () =>
+    message([blob('c6.pdf', readableCert('MVA-128651-C006', { studentName: 'Someone Else' }))]);
+  env.messages = [sameOrder(), sameOrder()];
+
+  const result = runIntake();
+
+  assert.equal(result.flagged.length, 1);
   assert.equal(env.appended.length, 0);
 });

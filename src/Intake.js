@@ -59,6 +59,10 @@ function runIntake() {
     return seenByTab[tabName];
   }
 
+  // Certificates this run held back on a failed cross-check, so a failing
+  // Certificate surfaced by several emails is flagged once.
+  const heldBack = {};
+
   GmailIntakeSource.findCertificateEmails(goLiveDate).forEach(function (message) {
     GmailIntakeSource.getPdfAttachments(message).forEach(function (pdfBlob) {
       let cert;
@@ -105,11 +109,13 @@ function runIntake() {
 
       const seen = seenCertNumbers(rosterEntry.tabName);
       if (seen[cert.certificateNumber]) return; // already on the ledger — skip silently
+      if (heldBack[cert.certificateNumber]) return; // already flagged this run
 
       // Hold back anything that doesn't add up rather than write it. The next
       // run re-reads the email, so it's entered once the cause is fixed.
       const problems = CertCheck.problems(cert, rosterEntry.certName);
       if (problems.length > 0) {
+        heldBack[cert.certificateNumber] = true;
         result.flagged.push({
           reason: 'failed-check',
           certificateNumber: cert.certificateNumber,
